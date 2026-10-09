@@ -32,4 +32,46 @@ public class AccountService {
         return account;
     }
 
+    public Account deposit(String id, BigDecimal amount){
+        int valid = amount.compareTo(BigDecimal.ZERO);
+        if(valid <= 0){
+            throw new IllegalArgumentException("Amount is lower or equals to zero");
+        }
+        if(!repository.containsKey(id)){
+            throw new IllegalArgumentException("Account whit ID:" + id + " does not exists");
+        }
+        Account account = getAccount(id);
+
+        BigDecimal balance = account.getBalance();
+        BigDecimal newBalance = balance.add(amount);
+
+        account.setBalance(newBalance);
+
+        return account;
+    }
+
+    public Account withdraw(String id, BigDecimal amount){
+        int valid = amount.compareTo(BigDecimal.ZERO);
+        if(valid <= 0){
+            throw new IllegalArgumentException("Amount is lower or equals to zero");
+        }
+        if(!repository.containsKey(id)){
+            throw new IllegalArgumentException("Account whit ID:" + id + " does not exists");
+        }
+        Account account = getAccount(id);
+
+        BigDecimal balance = account.getBalance();
+
+        int validBalance = balance.compareTo(amount);
+        if (validBalance < 0){
+            throw new IllegalArgumentException("Amount is bigger then atual balance");
+        }
+        BigDecimal newBalance = balance.subtract(amount);
+
+        account.setBalance(newBalance);
+
+        return account;
+    }
+
+
 }

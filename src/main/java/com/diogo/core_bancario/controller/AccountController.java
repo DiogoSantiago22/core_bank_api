@@ -5,6 +5,8 @@ import com.diogo.core_bancario.model.Account;
 import com.diogo.core_bancario.service.AccountService;
 import org.springframework.web.bind.annotation.*;
 
+import java.math.BigDecimal;
+
 @RestController
 @RequestMapping("/api/accounts") // Base URL for all endpoints in this controller
 public class AccountController {
@@ -24,6 +26,15 @@ public class AccountController {
     public Account getAccount(@PathVariable("id") String id) // Extracts dynamic value from URL path (f.e: /123)
     {
         return accountService.getAccount(id);
+    }
+
+    @PutMapping("/{id}/deposit")
+    public Account deposit(@PathVariable("id") String id, @RequestParam BigDecimal amount){
+        return accountService.deposit(id,amount);
+    }
+    @PutMapping("/{id}/withdraw")
+    public Account withdraw(@PathVariable("id") String id, @RequestParam BigDecimal amount){
+        return accountService.withdraw(id,amount);
     }
 
 
