@@ -37,9 +37,7 @@ public class AccountService {
         if(valid <= 0){
             throw new IllegalArgumentException("Amount is lower or equals to zero");
         }
-        if(!repository.containsKey(id)){
-            throw new IllegalArgumentException("Account whit ID:" + id + " does not exists");
-        }
+
         Account account = getAccount(id);
 
         BigDecimal balance = account.getBalance();
@@ -55,9 +53,7 @@ public class AccountService {
         if(valid <= 0){
             throw new IllegalArgumentException("Amount is lower or equals to zero");
         }
-        if(!repository.containsKey(id)){
-            throw new IllegalArgumentException("Account whit ID:" + id + " does not exists");
-        }
+
         Account account = getAccount(id);
 
         BigDecimal balance = account.getBalance();
@@ -73,5 +69,11 @@ public class AccountService {
         return account;
     }
 
+    public void transfer(String fromId,BigDecimal amount, String toId){
+        getAccount(fromId);
+        getAccount(toId);
 
+        withdraw(fromId,amount);
+        deposit(toId,amount);
+    }
 }
