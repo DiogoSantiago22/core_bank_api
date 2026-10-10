@@ -1,8 +1,12 @@
 package com.diogo.core_bancario.model;
 
-import java.math.BigDecimal;
+import jakarta.persistence.Entity;
+import jakarta.persistence.Id;
 
+import java.math.BigDecimal;
+@Entity //Create Table
 public class Account {
+    @Id //PK
     private String id;
     private String ownerName;
     private String ownerAge;
@@ -12,6 +16,9 @@ public class Account {
         this.id = id;
         this.ownerName = ownerName;
         this.balance = balance;
+    }
+    // should have [public, protected] no-arg constructor
+    public Account() {
     }
 
     // Getters:

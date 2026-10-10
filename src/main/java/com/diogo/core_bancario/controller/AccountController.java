@@ -41,6 +41,4 @@ public class AccountController {
     public void transfer(@RequestParam String fromId,@RequestParam BigDecimal amount, @RequestParam String toId){
         accountService.transfer(fromId,amount,toId);
     }
-
-
 }

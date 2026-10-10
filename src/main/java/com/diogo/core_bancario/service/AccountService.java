@@ -1,6 +1,7 @@
 package com.diogo.core_bancario.service;
 
 import com.diogo.core_bancario.model.Account;
+import com.diogo.core_bancario.repository.AccountRepository;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
@@ -10,26 +11,26 @@ import java.util.Map;
 // Logic of the account
 @Service
 public class AccountService {
-    // For now im using this in RAM for "Data Base"
-    private final Map<String, Account> repository = new HashMap<>();
+    private final AccountRepository repository;
 
+    public AccountService(AccountRepository repository) {
+        this.repository = repository;
+    }
 
     public Account createAccount(String id,String ownerName){
-        if(repository.containsKey(id)){
+        if(repository.existsById(id)){
             throw new IllegalArgumentException("Account ID alredy exists");
         }
         Account newAcount = new Account(id,ownerName,BigDecimal.valueOf(0));
 
-        repository.put(id, newAcount);
+        repository.save(newAcount);
         return newAcount;
     }
 
     public Account getAccount(String id){
-        Account account = repository.get(id);
-        if(account == null){
-            throw new IllegalArgumentException("Account whit ID:" + id + " does not exists");
-        }
-        return account;
+        return repository.findById(id).orElseThrow(() ->
+                new IllegalArgumentException("Account whit ID:" + id + " does not exists") //Because its Optimal "Optional<Account>"
+        );
     }
 
     public Account deposit(String id, BigDecimal amount){
@@ -44,7 +45,7 @@ public class AccountService {
         BigDecimal newBalance = balance.add(amount);
 
         account.setBalance(newBalance);
-
+        repository.save(account); // Update DB
         return account;
     }
 
@@ -65,7 +66,7 @@ public class AccountService {
         BigDecimal newBalance = balance.subtract(amount);
 
         account.setBalance(newBalance);
-
+        repository.save(account); // Update DB
         return account;
     }
 
