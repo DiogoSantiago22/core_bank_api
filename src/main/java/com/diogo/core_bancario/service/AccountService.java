@@ -5,8 +5,6 @@ import com.diogo.core_bancario.repository.AccountRepository;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
-import java.util.HashMap;
-import java.util.Map;
 
 // Logic of the account
 @Service

@@ -1,11 +1,15 @@
 package com.diogo.core_bancario.controller;
 
 
+import com.diogo.core_bancario.dto.AccountCreateDTO;
+import com.diogo.core_bancario.dto.AccountResponseDTO;
+import com.diogo.core_bancario.dto.AmountRequestDTO;
+import com.diogo.core_bancario.dto.TransferRequestDTO;
 import com.diogo.core_bancario.model.Account;
 import com.diogo.core_bancario.service.AccountService;
+import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.*;
 
-import java.math.BigDecimal;
 
 @RestController
 @RequestMapping("/api/accounts") // Base URL for all endpoints in this controller
@@ -18,27 +22,35 @@ public class AccountController {
     }
 
     @PostMapping // HTTP POST requests (create new data)
-    public Account createAccount(@RequestParam String id, // Extracts value from URL query (f.e.: ?id=123)
-                                 @RequestParam String ownerName){
-        return accountService.createAccount(id,ownerName);
+    public AccountResponseDTO createAccount(@Valid @RequestBody AccountCreateDTO accountCreateDTO){
+        Account account = accountService.createAccount(accountCreateDTO.id(),accountCreateDTO.ownerName());
+        return toDTO(account);
     }
+
     @GetMapping("/{id}") // HTTP GET requests (read data)
-    public Account getAccount(@PathVariable("id") String id) // Extracts dynamic value from URL path (f.e: /123)
+    public AccountResponseDTO getAccount(@PathVariable("id") String id) // Extracts dynamic value from URL path (f.e: /123)
     {
-        return accountService.getAccount(id);
+        Account account = accountService.getAccount(id);
+        return toDTO(account);
     }
 
     @PutMapping("/{id}/deposit")
-    public Account deposit(@PathVariable("id") String id, @RequestParam BigDecimal amount){
-        return accountService.deposit(id,amount);
+    public AccountResponseDTO deposit(@PathVariable("id") String id,  @Valid @RequestBody AmountRequestDTO amountRequestDTO){
+        Account account = accountService.deposit(id,amountRequestDTO.amount());
+        return toDTO(account);
     }
     @PutMapping("/{id}/withdraw")
-    public Account withdraw(@PathVariable("id") String id, @RequestParam BigDecimal amount){
-        return accountService.withdraw(id,amount);
+    public AccountResponseDTO withdraw(@PathVariable("id") String id, @Valid @RequestBody AmountRequestDTO amountRequestDTO){
+        Account account = accountService.withdraw(id,amountRequestDTO.amount());
+        return toDTO(account);
     }
 
     @PostMapping("/transfer")
-    public void transfer(@RequestParam String fromId,@RequestParam BigDecimal amount, @RequestParam String toId){
-        accountService.transfer(fromId,amount,toId);
+    public void transfer(@Valid @RequestBody TransferRequestDTO transferRequestDTO){
+        accountService.transfer(transferRequestDTO.fromId(),transferRequestDTO.amount(),transferRequestDTO.toId());
+    }
+
+    private AccountResponseDTO toDTO(Account account){
+        return new AccountResponseDTO(account.getId(), account.getOwnerName(), account.getBalance());
     }
 }
