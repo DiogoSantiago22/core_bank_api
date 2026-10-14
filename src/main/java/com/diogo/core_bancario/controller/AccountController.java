@@ -1,14 +1,15 @@
 package com.diogo.core_bancario.controller;
 
 
-import com.diogo.core_bancario.dto.AccountCreateDTO;
-import com.diogo.core_bancario.dto.AccountResponseDTO;
-import com.diogo.core_bancario.dto.AmountRequestDTO;
-import com.diogo.core_bancario.dto.TransferRequestDTO;
+import com.diogo.core_bancario.dto.*;
 import com.diogo.core_bancario.model.Account;
+import com.diogo.core_bancario.model.Transaction;
 import com.diogo.core_bancario.service.AccountService;
 import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.*;
+
+import java.util.ArrayList;
+import java.util.List;
 
 
 @RestController
@@ -24,25 +25,25 @@ public class AccountController {
     @PostMapping // HTTP POST requests (create new data)
     public AccountResponseDTO createAccount(@Valid @RequestBody AccountCreateDTO accountCreateDTO){
         Account account = accountService.createAccount(accountCreateDTO.id(),accountCreateDTO.ownerName());
-        return toDTO(account);
+        return toAccountDTO(account);
     }
 
     @GetMapping("/{id}") // HTTP GET requests (read data)
     public AccountResponseDTO getAccount(@PathVariable("id") String id) // Extracts dynamic value from URL path (f.e: /123)
     {
         Account account = accountService.getAccount(id);
-        return toDTO(account);
+        return toAccountDTO(account);
     }
 
     @PutMapping("/{id}/deposit")
     public AccountResponseDTO deposit(@PathVariable("id") String id,  @Valid @RequestBody AmountRequestDTO amountRequestDTO){
         Account account = accountService.deposit(id,amountRequestDTO.amount());
-        return toDTO(account);
+        return toAccountDTO(account);
     }
     @PutMapping("/{id}/withdraw")
     public AccountResponseDTO withdraw(@PathVariable("id") String id, @Valid @RequestBody AmountRequestDTO amountRequestDTO){
         Account account = accountService.withdraw(id,amountRequestDTO.amount());
-        return toDTO(account);
+        return toAccountDTO(account);
     }
 
     @PostMapping("/transfer")
@@ -50,7 +51,27 @@ public class AccountController {
         accountService.transfer(transferRequestDTO.fromId(),transferRequestDTO.amount(),transferRequestDTO.toId());
     }
 
-    private AccountResponseDTO toDTO(Account account){
+    @GetMapping("/{id}/transactions")
+    public List<TransactionResponseDTO> getTransactions(@PathVariable("id") String id){
+        List<Transaction> transactions = accountService.getTransactions(id);
+
+        List<TransactionResponseDTO> responseList = new ArrayList<>();
+
+        for (Transaction transaction : transactions) {
+            TransactionResponseDTO dto = toTransactionDTO(transaction);
+            responseList.add(dto);
+        }
+
+        return responseList;
+    }
+
+
+    private AccountResponseDTO toAccountDTO(Account account){
         return new AccountResponseDTO(account.getId(), account.getOwnerName(), account.getBalance());
     }
+
+    private TransactionResponseDTO toTransactionDTO(Transaction transaction) {
+        return new TransactionResponseDTO(transaction.getId(), transaction.getTransactionType(), transaction.getAmount(), transaction.getTimestamp());
+    }
+
 }

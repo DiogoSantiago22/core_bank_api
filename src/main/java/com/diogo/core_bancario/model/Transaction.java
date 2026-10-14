@@ -22,8 +22,7 @@ public class Transaction
     private TransactionType transactionType;
     private LocalDateTime timestamp;
 
-    public Transaction(Long id, Account account,BigDecimal amount, TransactionType transactionType,LocalDateTime timestamp){
-        this.id = id;
+    public Transaction(Account account,BigDecimal amount, TransactionType transactionType){
         this.account= account;
         this.amount = amount;
         this.transactionType = transactionType;
