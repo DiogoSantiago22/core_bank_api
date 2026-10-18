@@ -73,5 +73,4 @@ public class AccountController {
     private TransactionResponseDTO toTransactionDTO(Transaction transaction) {
         return new TransactionResponseDTO(transaction.getId(), transaction.getTransactionType(), transaction.getAmount(), transaction.getTimestamp());
     }
-
 }
