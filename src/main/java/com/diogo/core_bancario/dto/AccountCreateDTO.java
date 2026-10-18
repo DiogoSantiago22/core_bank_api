@@ -1,6 +1,8 @@
 package com.diogo.core_bancario.dto;
 
+import com.diogo.core_bancario.model.Role;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
 
 // 'record' automatically generates constructors and getters
 
@@ -11,5 +13,15 @@ public record AccountCreateDTO(
         String id,
 
         @NotBlank(message = "Name of the owner its mandatory")
-        String ownerName
+        String ownerName,
+
+        @NotBlank(message = "Email of the owner its mandatory")
+        String email,
+
+        @NotBlank(message = "Password of the owner its mandatory")
+        String password,
+
+        @NotNull(message = "Role of the owner its mandatory")
+        Role role
+
 ) {}

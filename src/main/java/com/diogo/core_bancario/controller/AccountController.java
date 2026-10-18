@@ -24,7 +24,7 @@ public class AccountController {
 
     @PostMapping // HTTP POST requests (create new data)
     public AccountResponseDTO createAccount(@Valid @RequestBody AccountCreateDTO accountCreateDTO){
-        Account account = accountService.createAccount(accountCreateDTO.id(),accountCreateDTO.ownerName());
+        Account account = accountService.createAccount(accountCreateDTO.id(),accountCreateDTO.ownerName(), accountCreateDTO.email(), accountCreateDTO.password(),accountCreateDTO.role());
         return toAccountDTO(account);
     }
 

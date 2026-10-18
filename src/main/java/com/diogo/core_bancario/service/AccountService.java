@@ -1,11 +1,13 @@
 package com.diogo.core_bancario.service;
 
 import com.diogo.core_bancario.model.Account;
+import com.diogo.core_bancario.model.Role;
 import com.diogo.core_bancario.model.Transaction;
 import com.diogo.core_bancario.model.TransactionType;
 import com.diogo.core_bancario.repository.AccountRepository;
 import com.diogo.core_bancario.repository.TransactionRepository;
 import jakarta.transaction.Transactional;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
@@ -16,17 +18,20 @@ import java.util.List;
 public class AccountService {
     private final AccountRepository accountRepository;
     private final TransactionRepository transactionRepository;
+    private final PasswordEncoder passwordEncoder;
 
-    public AccountService(AccountRepository repository, TransactionRepository transactionRepository) {
+    public AccountService(AccountRepository repository, TransactionRepository transactionRepository, PasswordEncoder passwordEncoder) {
         this.accountRepository = repository;
         this.transactionRepository = transactionRepository;
+        this.passwordEncoder = passwordEncoder;
     }
 
-    public Account createAccount(String id,String ownerName){
+    public Account createAccount(String id,String ownerName,String email, String password, Role role){
         if(accountRepository.existsById(id)){
             throw new IllegalArgumentException("Account ID alredy exists");
         }
-        Account newAcount = new Account(id,ownerName,BigDecimal.valueOf(0));
+        String hashedPassword = passwordEncoder.encode(password);
+        Account newAcount = new Account(id,ownerName,BigDecimal.valueOf(0),email,hashedPassword,role);
 
         accountRepository.save(newAcount);
         return newAcount;
@@ -72,7 +77,7 @@ public class AccountService {
 
         int validBalance = balance.compareTo(amount);
         if (validBalance < 0){
-            throw new IllegalArgumentException("Amount is bigger then atual balance");
+            throw new IllegalArgumentException("Amount is bigger than actual balance");
         }
         BigDecimal newBalance = balance.subtract(amount);
         account.setBalance(newBalance);
