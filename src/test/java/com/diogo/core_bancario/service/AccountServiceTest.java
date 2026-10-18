@@ -1,10 +1,12 @@
 package com.diogo.core_bancario.service;
 
+import com.diogo.core_bancario.dto.LoginDTO;
 import com.diogo.core_bancario.model.Account;
 import com.diogo.core_bancario.model.Role;
 import com.diogo.core_bancario.model.TransactionType;
 import com.diogo.core_bancario.repository.AccountRepository;
 import com.diogo.core_bancario.repository.TransactionRepository;
+import com.diogo.core_bancario.security.JwtService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -28,13 +30,65 @@ class AccountServiceTest {
     @Mock
     private TransactionRepository transactionRepository;
 
-    @Mock // Adicionamos o mock do motor de encriptação
+    @Mock
     private PasswordEncoder passwordEncoder;
+
+    @Mock // Added JwtService mock so Spring can instantiate AccountService
+    private JwtService jwtService;
 
     @InjectMocks
     private AccountService accountService;
 
-    // --- TESTES DE DEPÓSITO ---
+    // --- LOGIN TESTS ---
+
+    @Test
+    void shouldSuccessfullyLoginAndReturnToken() {
+        LoginDTO loginDTO = new LoginDTO("diogo@mail.com", "minha_senha");
+        Account account = new Account("100", "Diogo Santiago", BigDecimal.ZERO, "diogo@mail.com", "senha_encriptada", Role.CLIENT);
+
+        when(accountRepository.findByEmail(loginDTO.email())).thenReturn(Optional.of(account));
+        when(passwordEncoder.matches(loginDTO.password(), account.getPassword())).thenReturn(true);
+        when(jwtService.generateToken(account.getEmail())).thenReturn("eyJh...token_valido");
+
+        String token = accountService.login(loginDTO);
+
+        assertEquals("eyJh...token_valido", token);
+        verify(jwtService, times(1)).generateToken(account.getEmail());
+    }
+
+    @Test
+    void shouldThrowExceptionWhenLoginEmailNotFound() {
+        LoginDTO loginDTO = new LoginDTO("email_falso@mail.com", "minha_senha");
+
+        when(accountRepository.findByEmail(loginDTO.email())).thenReturn(Optional.empty());
+
+        IllegalArgumentException exception = assertThrows(
+                IllegalArgumentException.class,
+                () -> accountService.login(loginDTO)
+        );
+
+        assertEquals("Invalid password or email", exception.getMessage());
+        verify(passwordEncoder, never()).matches(anyString(), anyString()); // If the email doesn't exist, it shouldn't waste CPU validating passwords
+    }
+
+    @Test
+    void shouldThrowExceptionWhenLoginPasswordIsWrong() {
+        LoginDTO loginDTO = new LoginDTO("diogo@mail.com", "senha_errada");
+        Account account = new Account("100", "Diogo Santiago", BigDecimal.ZERO, "diogo@mail.com", "senha_encriptada", Role.CLIENT);
+
+        when(accountRepository.findByEmail(loginDTO.email())).thenReturn(Optional.of(account));
+        when(passwordEncoder.matches(loginDTO.password(), account.getPassword())).thenReturn(false);
+
+        IllegalArgumentException exception = assertThrows(
+                IllegalArgumentException.class,
+                () -> accountService.login(loginDTO)
+        );
+
+        assertEquals("Invalid password or email", exception.getMessage());
+        verify(jwtService, never()).generateToken(anyString()); // Cannot generate token if the password failed
+    }
+
+    // --- DEPOSIT TESTS ---
 
     @Test
     void shouldThrowExceptionWhenDepositIsNegative() {
@@ -53,7 +107,6 @@ class AccountServiceTest {
     @Test
     void shouldSuccessfullyDepositWhenAccountExists() {
         String accountId = "100";
-        // Atualizado com email, password e role
         Account existingAccount = new Account(accountId, "Diogo Santiago", new BigDecimal("100.00"), "diogo@mail.com", "hash", Role.CLIENT);
         BigDecimal depositAmount = new BigDecimal("50.00");
 
@@ -83,7 +136,7 @@ class AccountServiceTest {
         verify(transactionRepository, never()).save(any());
     }
 
-    // --- TESTES DE LEVANTAMENTO (WITHDRAW) ---
+    // --- WITHDRAW TESTS ---
 
     @Test
     void shouldSuccessfullyWithdrawWhenBalanceIsSufficient() {
@@ -130,7 +183,7 @@ class AccountServiceTest {
         assertEquals("Amount is lower or equals to zero", exception.getMessage());
     }
 
-    // --- TESTES DE CRIAÇÃO DE CONTA ---
+    // --- ACCOUNT CREATION TESTS ---
 
     @Test
     void shouldSuccessfullyCreateAccountWhenIdDoesNotExist() {
@@ -141,17 +194,15 @@ class AccountServiceTest {
         Role role = Role.CLIENT;
 
         when(accountRepository.existsById(accountId)).thenReturn(false);
-        // Ensinamos o mock do encriptador a devolver uma string fictícia
         when(passwordEncoder.encode(rawPassword)).thenReturn("hashed_password123");
 
-        // Chamada atualizada com os 5 parâmetros
         Account newAccount = accountService.createAccount(accountId, ownerName, email, rawPassword, role);
 
         assertNotNull(newAccount);
         assertEquals(accountId, newAccount.getId());
         assertEquals(ownerName, newAccount.getOwnerName());
         assertEquals(email, newAccount.getEmail());
-        assertEquals("hashed_password123", newAccount.getPassword()); // Verifica se guardou a versão encriptada
+        assertEquals("hashed_password123", newAccount.getPassword());
         assertEquals(0, BigDecimal.ZERO.compareTo(newAccount.getBalance()));
 
         verify(passwordEncoder, times(1)).encode(rawPassword);
@@ -175,7 +226,6 @@ class AccountServiceTest {
 
         assertEquals("Account ID alredy exists", exception.getMessage());
         verify(accountRepository, never()).save(any());
-        // Garante que se falhar na validação do ID, nem chega a gastar CPU a encriptar a password
         verify(passwordEncoder, never()).encode(anyString());
     }
 }

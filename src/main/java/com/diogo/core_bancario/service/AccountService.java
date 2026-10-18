@@ -1,11 +1,13 @@
 package com.diogo.core_bancario.service;
 
+import com.diogo.core_bancario.dto.LoginDTO;
 import com.diogo.core_bancario.model.Account;
 import com.diogo.core_bancario.model.Role;
 import com.diogo.core_bancario.model.Transaction;
 import com.diogo.core_bancario.model.TransactionType;
 import com.diogo.core_bancario.repository.AccountRepository;
 import com.diogo.core_bancario.repository.TransactionRepository;
+import com.diogo.core_bancario.security.JwtService;
 import jakarta.transaction.Transactional;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -19,11 +21,13 @@ public class AccountService {
     private final AccountRepository accountRepository;
     private final TransactionRepository transactionRepository;
     private final PasswordEncoder passwordEncoder;
+    private final JwtService jwtService;
 
-    public AccountService(AccountRepository repository, TransactionRepository transactionRepository, PasswordEncoder passwordEncoder) {
+    public AccountService(AccountRepository repository, TransactionRepository transactionRepository, PasswordEncoder passwordEncoder, JwtService jwtService) {
         this.accountRepository = repository;
         this.transactionRepository = transactionRepository;
         this.passwordEncoder = passwordEncoder;
+        this.jwtService = jwtService;
     }
 
     public Account createAccount(String id,String ownerName,String email, String password, Role role){
@@ -96,6 +100,13 @@ public class AccountService {
 
         withdraw(fromId,amount);
         deposit(toId,amount);
+    }
+
+    public String login(LoginDTO loginDTO){
+        Account account = accountRepository.findByEmail(loginDTO.email()).orElseThrow((() -> new IllegalArgumentException("Invalid password or email")));
+
+        if (!passwordEncoder.matches(loginDTO.password(), account.getPassword())) { throw new IllegalArgumentException("Invalid password or email");}
+        return jwtService.generateToken(account.getEmail());
     }
 
     public List<Transaction> getTransactions(String id){
