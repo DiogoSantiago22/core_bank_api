@@ -1,5 +1,7 @@
 version: '3.8'
+
 services:
+  # Our Database container
   db:
     image: postgres:16
     container_name: bank_db
@@ -9,3 +11,15 @@ services:
       POSTGRES_DB: core_bank
     ports:
       - "5432:5432"
+
+  # Our Spring Boot API container
+  api:
+    build: . # Tells Docker to build using the Dockerfile in this directory
+    container_name: bank_api
+    ports:
+      - "8080:8080" # Exposes port 8080 to your local machine
+    depends_on:
+      - db # Waits for the database container to start before starting the API
+    environment:
+      # Overrides the database URL from application.properties to point to the db container
+      SPRING_DATASOURCE_URL: jdbc:postgresql://db:5432/core_bank
