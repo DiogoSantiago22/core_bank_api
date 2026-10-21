@@ -7,11 +7,15 @@ import com.diogo.core_bancario.model.TransactionType;
 import com.diogo.core_bancario.repository.AccountRepository;
 import com.diogo.core_bancario.repository.TransactionRepository;
 import com.diogo.core_bancario.security.JwtService;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContext;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
 import java.math.BigDecimal;
@@ -33,11 +37,26 @@ class AccountServiceTest {
     @Mock
     private PasswordEncoder passwordEncoder;
 
-    @Mock // Added JwtService mock so Spring can instantiate AccountService
+    @Mock
     private JwtService jwtService;
 
     @InjectMocks
     private AccountService accountService;
+
+    @AfterEach
+    void tearDown() {
+        SecurityContextHolder.clearContext();
+    }
+
+    // --- UTILS PARA TESTES DE SEGURANÇA ---
+
+    private void mockAuthenticatedUser(String email) {
+        Authentication authentication = mock(Authentication.class);
+        SecurityContext securityContext = mock(SecurityContext.class);
+        when(securityContext.getAuthentication()).thenReturn(authentication);
+        when(authentication.getName()).thenReturn(email);
+        SecurityContextHolder.setContext(securityContext);
+    }
 
     // --- LOGIN TESTS ---
 
@@ -68,7 +87,7 @@ class AccountServiceTest {
         );
 
         assertEquals("Invalid password or email", exception.getMessage());
-        verify(passwordEncoder, never()).matches(anyString(), anyString()); // If the email doesn't exist, it shouldn't waste CPU validating passwords
+        verify(passwordEncoder, never()).matches(anyString(), anyString());
     }
 
     @Test
@@ -85,10 +104,10 @@ class AccountServiceTest {
         );
 
         assertEquals("Invalid password or email", exception.getMessage());
-        verify(jwtService, never()).generateToken(anyString()); // Cannot generate token if the password failed
+        verify(jwtService, never()).generateToken(anyString());
     }
 
-    // --- DEPOSIT TESTS ---
+    // --- DEPOSIT TESTS (SEM SEGURANÇA) ---
 
     @Test
     void shouldThrowExceptionWhenDepositIsNegative() {
@@ -131,15 +150,35 @@ class AccountServiceTest {
                 () -> accountService.deposit(accountId, amount)
         );
 
-        assertTrue(exception.getMessage().contains("does not exist"));
+        assertTrue(exception.getMessage().contains("does not exists"));
         verify(accountRepository, never()).save(any());
         verify(transactionRepository, never()).save(any());
     }
 
-    // --- WITHDRAW TESTS ---
+    // --- WITHDRAW TESTS (COM SEGURANÇA) ---
 
     @Test
-    void shouldSuccessfullyWithdrawWhenBalanceIsSufficient() {
+    void shouldThrowExceptionWhenNotOwnerOnWithdraw() {
+        mockAuthenticatedUser("hacker@mail.com");
+
+        String accountId = "100";
+        Account existingAccount = new Account(accountId, "Diogo Santiago", new BigDecimal("200.00"), "diogo@mail.com", "hash", Role.CLIENT);
+
+        when(accountRepository.findById(accountId)).thenReturn(Optional.of(existingAccount));
+
+        IllegalArgumentException exception = assertThrows(
+                IllegalArgumentException.class,
+                () -> accountService.withdraw(accountId, new BigDecimal("50.00"))
+        );
+
+        assertEquals("Not your account", exception.getMessage());
+        verify(accountRepository, never()).save(any());
+    }
+
+    @Test
+    void shouldSuccessfullyWithdrawWhenBalanceIsSufficientAndIsOwner() {
+        mockAuthenticatedUser("diogo@mail.com");
+
         String accountId = "100";
         Account existingAccount = new Account(accountId, "Diogo Santiago", new BigDecimal("200.00"), "diogo@mail.com", "hash", Role.CLIENT);
         BigDecimal withdrawAmount = new BigDecimal("50.00");
@@ -155,6 +194,8 @@ class AccountServiceTest {
 
     @Test
     void shouldThrowExceptionWhenWithdrawExceedsBalance() {
+        mockAuthenticatedUser("diogo@mail.com");
+
         String accountId = "100";
         Account existingAccount = new Account(accountId, "Diogo Santiago", new BigDecimal("30.00"), "diogo@mail.com", "hash", Role.CLIENT);
         BigDecimal withdrawAmount = new BigDecimal("50.00");

@@ -9,6 +9,7 @@ import com.diogo.core_bancario.repository.AccountRepository;
 import com.diogo.core_bancario.repository.TransactionRepository;
 import com.diogo.core_bancario.security.JwtService;
 import jakarta.transaction.Transactional;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
@@ -76,7 +77,9 @@ public class AccountService {
         }
 
         Account account = getAccount(id);
-
+        if (!account.getEmail().equals(getEmailFromSecurityContextHolder())){
+            throw new IllegalArgumentException("Not your account");
+        }
         BigDecimal balance = account.getBalance();
 
         int validBalance = balance.compareTo(amount);
@@ -112,5 +115,13 @@ public class AccountService {
     public List<Transaction> getTransactions(String id){
         getAccount(id);
         return transactionRepository.findByAccountIdOrderByTimestampDesc(id);
+    }
+
+    private String getEmailFromSecurityContextHolder(){
+        String email = SecurityContextHolder.getContext().getAuthentication().getName();
+        if (email == null){
+            throw new IllegalArgumentException("No email found");
+        }
+       return email;
     }
 }
