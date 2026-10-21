@@ -10,30 +10,29 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 import java.time.LocalDateTime;
 
-@RestControllerAdvice // Tells Spring this class intercepts all controllers
+@RestControllerAdvice
 public class GlobalExceptionHandler {
 
-    // Handles rules (f.e.: "Account not found", "Insufficient funds")
+    // Handles business logic exceptions from the Service layer
     @ExceptionHandler(IllegalArgumentException.class)
-    @ResponseStatus(HttpStatus.BAD_REQUEST) // Returns 400 instead of 500
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
     public ErrorResponseDTO handleIllegalArgumentException(IllegalArgumentException ex, HttpServletRequest request) {
-
         return new ErrorResponseDTO(
                 LocalDateTime.now(),
                 HttpStatus.BAD_REQUEST.value(),
-                "Bad Request",
-                ex.getMessage(), // This prints custom message
+                "Business Rule Violation",
+                ex.getMessage(),
                 request.getRequestURI()
         );
     }
 
-    // Handles DTO @Valid failures (f.e.: amount = -50)
+    // Handles @Valid DTO validation errors
     @ExceptionHandler(MethodArgumentNotValidException.class)
     @ResponseStatus(HttpStatus.BAD_REQUEST)
     public ErrorResponseDTO handleValidationExceptions(MethodArgumentNotValidException ex, HttpServletRequest request) {
 
-        // Grabs the custom message
-        String errorMessage = ex.getBindingResult().getFieldErrors().getFirst().getDefaultMessage();
+        // Gets the first validation error message
+        String errorMessage = ex.getBindingResult().getFieldErrors().get(0).getDefaultMessage();
 
         return new ErrorResponseDTO(
                 LocalDateTime.now(),
