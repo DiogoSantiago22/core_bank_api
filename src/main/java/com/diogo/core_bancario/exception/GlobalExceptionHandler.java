@@ -42,4 +42,24 @@ public class GlobalExceptionHandler {
                 request.getRequestURI()
         );
     }
+    // Account not found -> 404
+    @ExceptionHandler(ResourceNotFoundException.class)
+    @ResponseStatus(HttpStatus.NOT_FOUND)
+    public ErrorResponseDTO handleResourceNotFoundException(ResourceNotFoundException ex, HttpServletRequest request) {
+        return new ErrorResponseDTO(LocalDateTime.now(), HttpStatus.NOT_FOUND.value(), "Not Found", ex.getMessage(), request.getRequestURI());
+    }
+
+    // Login wrong -> 401
+    @ExceptionHandler(UnauthorizedException.class)
+    @ResponseStatus(HttpStatus.UNAUTHORIZED)
+    public ErrorResponseDTO handleUnauthorizedException(UnauthorizedException ex, HttpServletRequest request) {
+        return new ErrorResponseDTO(LocalDateTime.now(), HttpStatus.UNAUTHORIZED.value(), "Unauthorized", ex.getMessage(), request.getRequestURI());
+    }
+
+    // Wrong login Account -> 403
+    @ExceptionHandler(ForbiddenException.class)
+    @ResponseStatus(HttpStatus.FORBIDDEN)
+    public ErrorResponseDTO handleForbiddenException(ForbiddenException ex, HttpServletRequest request) {
+        return new ErrorResponseDTO(LocalDateTime.now(), HttpStatus.FORBIDDEN.value(), "Forbidden", ex.getMessage(), request.getRequestURI());
+    }
 }
