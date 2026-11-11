@@ -1,0 +1,700 @@
+﻿package com.diogo.core_bancario;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+
+@SpringBootApplication
+public class CoreBancarioApplication {
+
+	public static void main(String[] args) {
+		SpringApplication.run(CoreBancarioApplication.class, args);
+	}
+
+}
+package com.diogo.core_bancario.config;
+
+import com.diogo.core_bancario.security.JwtAuthenticationFilter;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
+import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
+import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
+import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+
+@Configuration
+@EnableWebSecurity
+public class SecurityConfig {
+
+    private final JwtAuthenticationFilter jwtAuthenticationFilter;
+
+    // Inject our custom Security Guard
+    public SecurityConfig(JwtAuthenticationFilter jwtAuthenticationFilter) {
+        this.jwtAuthenticationFilter = jwtAuthenticationFilter;
+    }
+
+    @Bean
+    public PasswordEncoder passwordEncoder() {
+        return new BCryptPasswordEncoder();
+    }
+
+    @Bean
+    public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+        return http
+                .csrf(AbstractHttpConfigurer::disable)
+
+                // REST APIs must be STATELESS (no server-side sessions)
+                .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+
+                .authorizeHttpRequests(auth -> auth
+                        // Public endpoints
+                        .requestMatchers(HttpMethod.POST, "/api/accounts").permitAll() // Sign up
+                        .requestMatchers(HttpMethod.POST, "/api/auth/login").permitAll() // Login
+                        .requestMatchers("/error").permitAll()
+
+                        .requestMatchers("/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html").permitAll()
+
+                        // Private endpoints (Everything else!)
+                        .anyRequest().authenticated()
+                )
+
+                // Place our custom guard BEFORE the standard Spring guard
+                .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
+
+                .build();
+    }
+}
+package com.diogo.core_bancario.controller;
+
+
+import com.diogo.core_bancario.dto.*;
+import com.diogo.core_bancario.model.Account;
+import com.diogo.core_bancario.model.Transaction;
+import com.diogo.core_bancario.service.AccountService;
+import jakarta.validation.Valid;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.ArrayList;
+import java.util.List;
+
+
+@RestController
+@RequestMapping("/api/accounts") // Base URL for all endpoints in this controller
+public class AccountController {
+
+    private final AccountService accountService;
+
+    public AccountController(AccountService accountService){
+        this.accountService = accountService;
+    }
+
+    @PostMapping // HTTP POST requests (create new data)
+    public AccountResponseDTO createAccount(@Valid @RequestBody AccountCreateDTO accountCreateDTO){
+        Account account = accountService.createAccount(accountCreateDTO.id(),accountCreateDTO.ownerName(), accountCreateDTO.email(), accountCreateDTO.password(),accountCreateDTO.role());
+        return toAccountDTO(account);
+    }
+
+    @GetMapping("/{id}") // HTTP GET requests (read data)
+    public AccountResponseDTO getAccount(@PathVariable("id") String id) // Extracts dynamic value from URL path (f.e: /123)
+    {
+        Account account = accountService.getAccount(id);
+        return toAccountDTO(account);
+    }
+
+    @PutMapping("/{id}/deposit")
+    public AccountResponseDTO deposit(@PathVariable("id") String id,  @Valid @RequestBody AmountRequestDTO amountRequestDTO){
+        Account account = accountService.deposit(id,amountRequestDTO.amount());
+        return toAccountDTO(account);
+    }
+    @PutMapping("/{id}/withdraw")
+    public AccountResponseDTO withdraw(@PathVariable("id") String id, @Valid @RequestBody AmountRequestDTO amountRequestDTO){
+        Account account = accountService.withdraw(id,amountRequestDTO.amount());
+        return toAccountDTO(account);
+    }
+
+    @PostMapping("/transfer")
+    public void transfer(@Valid @RequestBody TransferRequestDTO transferRequestDTO){
+        accountService.transfer(transferRequestDTO.fromId(),transferRequestDTO.amount(),transferRequestDTO.toId());
+    }
+
+    @GetMapping("/{id}/transactions")
+    public List<TransactionResponseDTO> getTransactions(@PathVariable("id") String id){
+        List<Transaction> transactions = accountService.getTransactions(id);
+
+        List<TransactionResponseDTO> responseList = new ArrayList<>();
+
+        for (Transaction transaction : transactions) {
+            TransactionResponseDTO dto = toTransactionDTO(transaction);
+            responseList.add(dto);
+        }
+
+        return responseList;
+    }
+
+
+    private AccountResponseDTO toAccountDTO(Account account){
+        return new AccountResponseDTO(account.getId(), account.getOwnerName(), account.getBalance());
+    }
+
+    private TransactionResponseDTO toTransactionDTO(Transaction transaction) {
+        return new TransactionResponseDTO(transaction.getId(), transaction.getTransactionType(), transaction.getAmount(), transaction.getTimestamp());
+    }
+}
+package com.diogo.core_bancario.controller;
+
+import com.diogo.core_bancario.dto.AccountResponseDTO;
+import com.diogo.core_bancario.dto.LoginDTO;
+import com.diogo.core_bancario.dto.TokenResponseDTO;
+import com.diogo.core_bancario.service.AccountService;
+import jakarta.validation.Valid;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+@RestController
+@RequestMapping("/api/auth")
+public class AuthController {
+    private final AccountService accountService;
+
+    public AuthController(AccountService accountService) {
+        this.accountService = accountService;
+    }
+
+    @PostMapping("/login")
+    public TokenResponseDTO login(@Valid @RequestBody LoginDTO loginDTO){
+       return new TokenResponseDTO(accountService.login(loginDTO));
+    }
+
+}
+package com.diogo.core_bancario.controller;
+
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+@RestController
+public class PingController {
+
+    @GetMapping("/ping")
+    public String healthCheck() {
+        return "System health: Core Banking API is up and running!";
+    }
+}
+package com.diogo.core_bancario.dto;
+
+import com.diogo.core_bancario.model.Role;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
+
+// 'record' automatically generates constructors and getters
+
+public record AccountCreateDTO(
+
+        // Validate the data before the code runs
+        @NotBlank(message = "ID of the account its mandatory")
+        String id,
+
+        @NotBlank(message = "Name of the owner its mandatory")
+        String ownerName,
+
+        @NotBlank(message = "Email of the owner its mandatory")
+        String email,
+
+        @NotBlank(message = "Password of the owner its mandatory")
+        String password,
+
+        @NotNull(message = "Role of the owner its mandatory")
+        Role role
+
+) {}
+package com.diogo.core_bancario.dto;
+
+import java.math.BigDecimal;
+
+public record AccountResponseDTO(
+        String id,
+        String ownerName,
+        BigDecimal balance
+) {}
+package com.diogo.core_bancario.dto;
+
+import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Positive;
+import java.math.BigDecimal;
+
+public record AmountRequestDTO(
+        @NotNull(message = "Amount is required")
+        @Positive(message = "Amount must be greater than zero")
+        BigDecimal amount
+) {}
+package com.diogo.core_bancario.dto;
+
+import java.time.LocalDateTime;
+
+public record ErrorResponseDTO(
+        LocalDateTime timestamp,
+        int status,
+        String error,
+        String message,
+        String path
+) {}
+package com.diogo.core_bancario.dto;
+
+import jakarta.validation.constraints.NotBlank;
+
+public record LoginDTO(
+
+        @NotBlank(message = "Email of the owner its mandatory")
+        String email,
+
+        @NotBlank(message = "Password of the owner its mandatory")
+        String password
+) {
+}
+package com.diogo.core_bancario.dto;
+
+public record TokenResponseDTO(
+        String token
+) {
+}
+package com.diogo.core_bancario.dto;
+
+import com.diogo.core_bancario.model.TransactionType;
+
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
+
+public record TransactionResponseDTO(Long id,
+                                     TransactionType type,
+                                     BigDecimal amount,
+                                     LocalDateTime timestamp) {
+}
+package com.diogo.core_bancario.dto;
+
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Positive;
+
+import java.math.BigDecimal;
+
+public record TransferRequestDTO(
+        @NotBlank(message = "Source account ID cannot be empty")
+        String fromId,
+
+        @NotNull(message = "Amount is required")
+        @Positive(message = "Amount must be greater than zero")
+        BigDecimal amount,
+
+        @NotBlank(message = "Destination account ID cannot be empty")
+        String toId
+) {}
+package com.diogo.core_bancario.exception;
+
+import com.diogo.core_bancario.dto.ErrorResponseDTO;
+import jakarta.servlet.http.HttpServletRequest;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.annotation.ResponseStatus;
+import org.springframework.web.bind.annotation.RestControllerAdvice;
+
+import java.time.LocalDateTime;
+
+@RestControllerAdvice
+public class GlobalExceptionHandler {
+
+    // Handles business logic exceptions from the Service layer
+    @ExceptionHandler(IllegalArgumentException.class)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    public ErrorResponseDTO handleIllegalArgumentException(IllegalArgumentException ex, HttpServletRequest request) {
+        return new ErrorResponseDTO(
+                LocalDateTime.now(),
+                HttpStatus.BAD_REQUEST.value(),
+                "Business Rule Violation",
+                ex.getMessage(),
+                request.getRequestURI()
+        );
+    }
+
+    // Handles @Valid DTO validation errors
+    @ExceptionHandler(MethodArgumentNotValidException.class)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    public ErrorResponseDTO handleValidationExceptions(MethodArgumentNotValidException ex, HttpServletRequest request) {
+
+        // Gets the first validation error message
+        String errorMessage = ex.getBindingResult().getFieldErrors().get(0).getDefaultMessage();
+
+        return new ErrorResponseDTO(
+                LocalDateTime.now(),
+                HttpStatus.BAD_REQUEST.value(),
+                "Validation Failed",
+                errorMessage,
+                request.getRequestURI()
+        );
+    }
+}
+package com.diogo.core_bancario.model;
+
+import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
+import jakarta.persistence.Id;
+
+import java.math.BigDecimal;
+@Entity //Create Table
+public class Account {
+    @Id //PK
+    private String id;
+    private String ownerName;
+    private BigDecimal balance;
+    private String email;
+    private String password;
+
+    @Enumerated(EnumType.STRING) // To save "ADMIN" and not "0" f.e.
+    private Role role;
+
+    public Account(String id, String ownerName, BigDecimal balance,String email,String password, Role role){
+        this.id = id;
+        this.ownerName = ownerName;
+        this.balance = balance;
+        this.email = email;
+        this.password = password;
+        this.role = role;
+    }
+    // should have [public, protected] no-arg constructor
+    public Account() {
+    }
+
+    // Getters:
+    public String getId(){
+        return id;
+    }
+    public String getOwnerName(){
+        return ownerName;
+    }
+    public BigDecimal getBalance(){
+        return balance;
+    }
+    public String getEmail(){return email;}
+    public String getPassword(){return password;}
+    public Role getRole(){return role;}
+
+
+    // Setters:
+    public void setBalance(BigDecimal balance){
+        this.balance = balance;
+    }
+    public void setPassword(String password){this.password = password;}
+    public void setEmail(String email){this.email = email;}
+    public void setRole(Role role){this.role = role;}
+
+}
+package com.diogo.core_bancario.model;
+
+public enum Role {
+    ADMIN,
+    CLIENT
+}
+package com.diogo.core_bancario.model;
+
+import jakarta.persistence.*;
+
+import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+
+@Entity
+@Table(name="transactions")
+public class Transaction
+{
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+    @ManyToOne //Many transaction belong to One Account
+    @JoinColumn(name = "account_id", nullable = false)
+    private Account account;
+    private BigDecimal amount;
+    @Enumerated(EnumType.STRING)
+
+    private TransactionType transactionType;
+    private LocalDateTime timestamp;
+
+    public Transaction(Account account,BigDecimal amount, TransactionType transactionType){
+        this.account= account;
+        this.amount = amount;
+        this.transactionType = transactionType;
+        this.timestamp = LocalDateTime.now();
+    }
+
+    public Transaction() {
+
+    }
+
+    public Long getId(){
+        return id;
+    }
+    public Account getAccount(){
+        return account;
+    }
+    public BigDecimal getAmount(){
+        return amount;
+    }
+    public LocalDateTime getTimestamp(){
+        return timestamp;
+    }
+    public TransactionType getTransactionType(){
+        return transactionType;
+    }
+
+
+}
+package com.diogo.core_bancario.model;
+
+public enum TransactionType {
+    DEPOSIT,
+    WITHDRAW,
+    TRANSFER //Not used for now
+}
+package com.diogo.core_bancario.repository;
+
+import com.diogo.core_bancario.model.Account;
+import org.springframework.data.jpa.repository.JpaRepository;
+
+import java.util.Optional;
+
+public interface AccountRepository extends JpaRepository<Account, String> {
+    Optional<Account> findByEmail(String email);
+}
+package com.diogo.core_bancario.repository;
+
+import com.diogo.core_bancario.model.Transaction;
+import org.springframework.data.jpa.repository.JpaRepository;
+import java.util.List;
+
+public interface TransactionRepository extends JpaRepository<Transaction, Long> {
+
+    // Automatically generates the SQL query from this method name
+    // SELECT * FROM transactions WHERE account_id = ? ORDER BY timestamp DESC
+    List<Transaction> findByAccountIdOrderByTimestampDesc(String accountId);
+}
+package com.diogo.core_bancario.security;
+
+import jakarta.servlet.FilterChain;
+import jakarta.servlet.ServletException;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.stereotype.Component;
+import org.springframework.web.filter.OncePerRequestFilter;
+
+import java.io.IOException;
+import java.util.ArrayList;
+
+@Component
+public class JwtAuthenticationFilter extends OncePerRequestFilter {
+
+    private final JwtService jwtService;
+
+    public JwtAuthenticationFilter(JwtService jwtService) {
+        this.jwtService = jwtService;
+    }
+
+    @Override
+    protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain) throws ServletException, IOException {
+
+        // Check if the "Authorization" header exists
+        String authHeader = request.getHeader("Authorization");
+
+        // The standard for JWT is to send it as "Bearer eyJhbGci..."
+        if (authHeader != null && authHeader.startsWith("Bearer ")) {
+            String token = authHeader.replace("Bearer ", "");
+
+            // Validate the signature. If someone tampered with it, validateToken returns null
+            String email = jwtService.validateToken(token);
+
+            // If token is valid and user is not yet authenticated in this request
+            if (email != null && SecurityContextHolder.getContext().getAuthentication() == null) {
+
+                // Create the official Spring Security "VIP Pass"
+                UsernamePasswordAuthenticationToken authentication =
+                        new UsernamePasswordAuthenticationToken(email, null, new ArrayList<>());
+
+                // Save the pass in the current security context
+                SecurityContextHolder.getContext().setAuthentication(authentication);
+            }
+        }
+
+        // Let the request continue to the next filter or to the Controller
+        filterChain.doFilter(request, response);
+    }
+}
+package com.diogo.core_bancario.security;
+
+import com.auth0.jwt.JWT;
+import com.auth0.jwt.algorithms.Algorithm;
+import com.auth0.jwt.exceptions.JWTVerificationException;
+import org.springframework.stereotype.Service;
+
+import java.util.Date;
+
+@Service
+public class JwtService {
+
+    // Secret key used to sign the token (in a real app, this should be in application.properties)
+    private static final String SECRET = "chave_secreta_super_segura_para_o_core_bancario_2026";
+    private final Algorithm algorithm = Algorithm.HMAC256(SECRET);
+
+    // Generates a token valid for 24 hours associated with the user's email
+    public String generateToken(String email) {
+        return JWT.create()
+                .withSubject(email)
+                .withIssuedAt(new Date())
+                .withExpiresAt(new Date(System.currentTimeMillis() + 86400000)) // 24h in milliseconds
+                .sign(algorithm);
+    }
+
+    // Validates the tokens mathematical signature and returns the email inside it
+    public String validateToken(String token) {
+        try {
+            return JWT.require(algorithm)
+                    .build()
+                    .verify(token)
+                    .getSubject();
+        } catch (JWTVerificationException exception) {
+            // If the token was tampered with or has expired, return null (reject access)
+            return null;
+        }
+    }
+}
+package com.diogo.core_bancario.service;
+
+import com.diogo.core_bancario.dto.LoginDTO;
+import com.diogo.core_bancario.model.Account;
+import com.diogo.core_bancario.model.Role;
+import com.diogo.core_bancario.model.Transaction;
+import com.diogo.core_bancario.model.TransactionType;
+import com.diogo.core_bancario.repository.AccountRepository;
+import com.diogo.core_bancario.repository.TransactionRepository;
+import com.diogo.core_bancario.security.JwtService;
+import jakarta.transaction.Transactional;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.stereotype.Service;
+
+import java.math.BigDecimal;
+import java.util.List;
+
+// Logic of the account
+@Service
+public class AccountService {
+    private final AccountRepository accountRepository;
+    private final TransactionRepository transactionRepository;
+    private final PasswordEncoder passwordEncoder;
+    private final JwtService jwtService;
+
+    public AccountService(AccountRepository repository, TransactionRepository transactionRepository, PasswordEncoder passwordEncoder, JwtService jwtService) {
+        this.accountRepository = repository;
+        this.transactionRepository = transactionRepository;
+        this.passwordEncoder = passwordEncoder;
+        this.jwtService = jwtService;
+    }
+
+    public Account createAccount(String id,String ownerName,String email, String password, Role role){
+        if(accountRepository.existsById(id)){
+            throw new IllegalArgumentException("Account ID alredy exists");
+        }
+        String hashedPassword = passwordEncoder.encode(password);
+        Account newAcount = new Account(id,ownerName,BigDecimal.valueOf(0),email,hashedPassword,role);
+
+        accountRepository.save(newAcount);
+        return newAcount;
+    }
+
+    public Account getAccount(String id){
+        return accountRepository.findById(id).orElseThrow(() ->
+                new IllegalArgumentException("Account whit ID:" + id + " does not exists") //Because its Optimal "Optional<Account>"
+        );
+    }
+
+    @Transactional // Ensures both saves happen safely
+    public Account deposit(String id, BigDecimal amount){
+        int valid = amount.compareTo(BigDecimal.ZERO);
+        if(valid <= 0){
+            throw new IllegalArgumentException("Amount is lower or equals to zero");
+        }
+
+        Account account = getAccount(id);
+
+        BigDecimal balance = account.getBalance();
+        BigDecimal newBalance = balance.add(amount);
+
+        account.setBalance(newBalance);
+
+        Transaction transaction = new Transaction(account,amount, TransactionType.DEPOSIT);
+
+        accountRepository.save(account); // Update DB
+        transactionRepository.save(transaction);
+        return account;
+    }
+
+    @Transactional // Ensures both saves happen safely
+    public Account withdraw(String id, BigDecimal amount){
+        int valid = amount.compareTo(BigDecimal.ZERO);
+        if(valid <= 0){
+            throw new IllegalArgumentException("Amount is lower or equals to zero");
+        }
+
+        Account account = getAccount(id);
+        if (!account.getEmail().equals(getEmailFromSecurityContextHolder())){
+            throw new IllegalArgumentException("Not your account");
+        }
+        BigDecimal balance = account.getBalance();
+
+        int validBalance = balance.compareTo(amount);
+        if (validBalance < 0){
+            throw new IllegalArgumentException("Amount is bigger than actual balance");
+        }
+        BigDecimal newBalance = balance.subtract(amount);
+        account.setBalance(newBalance);
+
+        Transaction transaction = new Transaction(account,amount,TransactionType.WITHDRAW);
+
+        accountRepository.save(account); // Update DB
+        transactionRepository.save(transaction);
+        return account;
+    }
+
+    @Transactional
+    public void transfer(String fromId,BigDecimal amount, String toId){
+        getAccount(fromId);
+        getAccount(toId);
+
+        withdraw(fromId,amount);
+        deposit(toId,amount);
+    }
+
+    public String login(LoginDTO loginDTO){
+        Account account = accountRepository.findByEmail(loginDTO.email()).orElseThrow((() -> new IllegalArgumentException("Invalid password or email")));
+
+        if (!passwordEncoder.matches(loginDTO.password(), account.getPassword())) { throw new IllegalArgumentException("Invalid password or email");}
+        return jwtService.generateToken(account.getEmail());
+    }
+
+    public List<Transaction> getTransactions(String id){
+        getAccount(id);
+        return transactionRepository.findByAccountIdOrderByTimestampDesc(id);
+    }
+
+    private String getEmailFromSecurityContextHolder(){
+        String email = SecurityContextHolder.getContext().getAuthentication().getName();
+        if (email == null){
+            throw new IllegalArgumentException("No email found");
+        }
+       return email;
+    }
+}

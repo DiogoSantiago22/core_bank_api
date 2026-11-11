@@ -37,7 +37,7 @@ public class AccountService {
 
     public Account createAccount(String id,String ownerName,String email, String password, Role role){
         if(accountRepository.existsById(id)){
-            throw new IllegalArgumentException("Account ID alredy exists");
+            throw new IllegalArgumentException("Account ID already exists");
         }
         String hashedPassword = passwordEncoder.encode(password);
         Account newAcount = new Account(id,ownerName,BigDecimal.valueOf(0),email,hashedPassword,role);
@@ -62,7 +62,7 @@ public class AccountService {
     public Account deposit(String id, BigDecimal amount){
         int valid = amount.compareTo(BigDecimal.ZERO);
         if(valid <= 0){
-            throw new IllegalArgumentException("Amount is lower or equals to zero");
+            throw new IllegalArgumentException("Amount must be greater than zero");
         }
 
         Account account = getAccountForUpdate(id);
@@ -83,7 +83,7 @@ public class AccountService {
     public Account withdraw(String id, BigDecimal amount){
         int valid = amount.compareTo(BigDecimal.ZERO);
         if(valid <= 0){
-            throw new IllegalArgumentException("Amount is lower or equals to zero");
+            throw new IllegalArgumentException("Amount must be greater than zero");
         }
 
         Account account = getAccountForUpdate(id);
@@ -107,12 +107,42 @@ public class AccountService {
     }
 
     @Transactional
-    public void transfer(String fromId,BigDecimal amount, String toId){
-        getAccount(fromId);
-        getAccount(toId);
+    public void transfer(String fromId, BigDecimal amount, String toId){
+        if (fromId.equals(toId)) {
+            throw new IllegalArgumentException("Cannot transfer to the same account");
+        }
+        if(amount.compareTo(BigDecimal.ZERO) <= 0){
+            throw new IllegalArgumentException("Amount must be greater than zero");
+        }
 
-        withdraw(fromId,amount);
-        deposit(toId,amount);
+        // DEADLOCK PREVENTION
+        Account firstLock, secondLock;
+        if (fromId.compareTo(toId) < 0) {
+            firstLock = getAccountForUpdate(fromId);
+            secondLock = getAccountForUpdate(toId);
+        } else {
+            firstLock = getAccountForUpdate(toId);
+            secondLock = getAccountForUpdate(fromId);
+        }
+
+        Account sender = fromId.equals(firstLock.getId()) ? firstLock : secondLock;
+        Account receiver = toId.equals(firstLock.getId()) ? firstLock : secondLock;
+
+        if (!sender.getEmail().equals(getEmailFromSecurityContextHolder())){
+            throw new ForbiddenException("You can only transfer from your own account");
+        }
+        if (sender.getBalance().compareTo(amount) < 0){
+            throw new IllegalArgumentException("Insufficient balance for transfer");
+        }
+
+        sender.setBalance(sender.getBalance().subtract(amount));
+        receiver.setBalance(receiver.getBalance().add(amount));
+
+        transactionRepository.save(new Transaction(sender, amount, TransactionType.WITHDRAW));
+        transactionRepository.save(new Transaction(receiver, amount, TransactionType.DEPOSIT));
+
+        accountRepository.save(sender);
+        accountRepository.save(receiver);
     }
 
     public String login(LoginDTO loginDTO){

@@ -1,9 +1,11 @@
 package com.diogo.core_bancario.service;
 
 import com.diogo.core_bancario.dto.LoginDTO;
+import com.diogo.core_bancario.exception.ForbiddenException;
+import com.diogo.core_bancario.exception.ResourceNotFoundException;
+import com.diogo.core_bancario.exception.UnauthorizedException;
 import com.diogo.core_bancario.model.Account;
 import com.diogo.core_bancario.model.Role;
-import com.diogo.core_bancario.model.TransactionType;
 import com.diogo.core_bancario.repository.AccountRepository;
 import com.diogo.core_bancario.repository.TransactionRepository;
 import com.diogo.core_bancario.security.JwtService;
@@ -48,8 +50,7 @@ class AccountServiceTest {
         SecurityContextHolder.clearContext();
     }
 
-    // --- UTILS PARA TESTES DE SEGURANÇA ---
-
+    // --- SECURITY TEST UTILS ---
     private void mockAuthenticatedUser(String email) {
         Authentication authentication = mock(Authentication.class);
         SecurityContext securityContext = mock(SecurityContext.class);
@@ -76,13 +77,13 @@ class AccountServiceTest {
     }
 
     @Test
-    void shouldThrowExceptionWhenLoginEmailNotFound() {
+    void shouldThrowUnauthorizedExceptionWhenLoginEmailNotFound() {
         LoginDTO loginDTO = new LoginDTO("email_falso@mail.com", "minha_senha");
 
         when(accountRepository.findByEmail(loginDTO.email())).thenReturn(Optional.empty());
 
-        IllegalArgumentException exception = assertThrows(
-                IllegalArgumentException.class,
+        UnauthorizedException exception = assertThrows(
+                UnauthorizedException.class,
                 () -> accountService.login(loginDTO)
         );
 
@@ -91,15 +92,15 @@ class AccountServiceTest {
     }
 
     @Test
-    void shouldThrowExceptionWhenLoginPasswordIsWrong() {
+    void shouldThrowUnauthorizedExceptionWhenLoginPasswordIsWrong() {
         LoginDTO loginDTO = new LoginDTO("diogo@mail.com", "senha_errada");
         Account account = new Account("100", "Diogo Santiago", BigDecimal.ZERO, "diogo@mail.com", "senha_encriptada", Role.CLIENT);
 
         when(accountRepository.findByEmail(loginDTO.email())).thenReturn(Optional.of(account));
         when(passwordEncoder.matches(loginDTO.password(), account.getPassword())).thenReturn(false);
 
-        IllegalArgumentException exception = assertThrows(
-                IllegalArgumentException.class,
+        UnauthorizedException exception = assertThrows(
+                UnauthorizedException.class,
                 () -> accountService.login(loginDTO)
         );
 
@@ -107,7 +108,7 @@ class AccountServiceTest {
         verify(jwtService, never()).generateToken(anyString());
     }
 
-    // --- DEPOSIT TESTS (SEM SEGURANÇA) ---
+    // --- DEPOSIT TESTS ---
 
     @Test
     void shouldThrowExceptionWhenDepositIsNegative() {
@@ -119,7 +120,7 @@ class AccountServiceTest {
                 () -> accountService.deposit(accountId, negativeAmount)
         );
 
-        assertEquals("Amount is lower or equals to zero", exception.getMessage());
+        assertEquals("Amount must be greater than zero", exception.getMessage());
         verify(accountRepository, never()).save(any(Account.class));
     }
 
@@ -129,7 +130,7 @@ class AccountServiceTest {
         Account existingAccount = new Account(accountId, "Diogo Santiago", new BigDecimal("100.00"), "diogo@mail.com", "hash", Role.CLIENT);
         BigDecimal depositAmount = new BigDecimal("50.00");
 
-        when(accountRepository.findById(accountId)).thenReturn(Optional.of(existingAccount));
+        when(accountRepository.findByIdForUpdate(accountId)).thenReturn(Optional.of(existingAccount));
 
         Account updatedAccount = accountService.deposit(accountId, depositAmount);
 
@@ -139,35 +140,35 @@ class AccountServiceTest {
     }
 
     @Test
-    void shouldThrowExceptionWhenAccountNotFoundOnDeposit() {
+    void shouldThrowResourceNotFoundExceptionWhenAccountNotFoundOnDeposit() {
         String accountId = "999";
         BigDecimal amount = new BigDecimal("50.00");
 
-        when(accountRepository.findById(accountId)).thenReturn(Optional.empty());
+        when(accountRepository.findByIdForUpdate(accountId)).thenReturn(Optional.empty());
 
-        IllegalArgumentException exception = assertThrows(
-                IllegalArgumentException.class,
+        ResourceNotFoundException exception = assertThrows(
+                ResourceNotFoundException.class,
                 () -> accountService.deposit(accountId, amount)
         );
 
-        assertTrue(exception.getMessage().contains("does not exists"));
+        assertTrue(exception.getMessage().contains("does not exist"));
         verify(accountRepository, never()).save(any());
         verify(transactionRepository, never()).save(any());
     }
 
-    // --- WITHDRAW TESTS (COM SEGURANÇA) ---
+    // --- WITHDRAW TESTS ---
 
     @Test
-    void shouldThrowExceptionWhenNotOwnerOnWithdraw() {
+    void shouldThrowForbiddenExceptionWhenNotOwnerOnWithdraw() {
         mockAuthenticatedUser("hacker@mail.com");
 
         String accountId = "100";
         Account existingAccount = new Account(accountId, "Diogo Santiago", new BigDecimal("200.00"), "diogo@mail.com", "hash", Role.CLIENT);
 
-        when(accountRepository.findById(accountId)).thenReturn(Optional.of(existingAccount));
+        when(accountRepository.findByIdForUpdate(accountId)).thenReturn(Optional.of(existingAccount));
 
-        IllegalArgumentException exception = assertThrows(
-                IllegalArgumentException.class,
+        ForbiddenException exception = assertThrows(
+                ForbiddenException.class,
                 () -> accountService.withdraw(accountId, new BigDecimal("50.00"))
         );
 
@@ -183,7 +184,7 @@ class AccountServiceTest {
         Account existingAccount = new Account(accountId, "Diogo Santiago", new BigDecimal("200.00"), "diogo@mail.com", "hash", Role.CLIENT);
         BigDecimal withdrawAmount = new BigDecimal("50.00");
 
-        when(accountRepository.findById(accountId)).thenReturn(Optional.of(existingAccount));
+        when(accountRepository.findByIdForUpdate(accountId)).thenReturn(Optional.of(existingAccount));
 
         Account updatedAccount = accountService.withdraw(accountId, withdrawAmount);
 
@@ -200,7 +201,7 @@ class AccountServiceTest {
         Account existingAccount = new Account(accountId, "Diogo Santiago", new BigDecimal("30.00"), "diogo@mail.com", "hash", Role.CLIENT);
         BigDecimal withdrawAmount = new BigDecimal("50.00");
 
-        when(accountRepository.findById(accountId)).thenReturn(Optional.of(existingAccount));
+        when(accountRepository.findByIdForUpdate(accountId)).thenReturn(Optional.of(existingAccount));
 
         IllegalArgumentException exception = assertThrows(
                 IllegalArgumentException.class,
@@ -211,17 +212,54 @@ class AccountServiceTest {
         verify(accountRepository, never()).save(any());
     }
 
-    @Test
-    void shouldThrowExceptionWhenWithdrawIsNegative() {
-        String accountId = "100";
-        BigDecimal negativeAmount = new BigDecimal("-10.00");
+    // --- TRANSFER TESTS ---
 
+    @Test
+    void shouldSuccessfullyTransferBetweenAccounts() {
+        mockAuthenticatedUser("sender@mail.com");
+
+        Account sender = new Account("100", "Sender", new BigDecimal("200.00"), "sender@mail.com", "hash", Role.CLIENT);
+        Account receiver = new Account("200", "Receiver", new BigDecimal("50.00"), "receiver@mail.com", "hash", Role.CLIENT);
+
+        when(accountRepository.findByIdForUpdate("100")).thenReturn(Optional.of(sender));
+        when(accountRepository.findByIdForUpdate("200")).thenReturn(Optional.of(receiver));
+
+        accountService.transfer("100", new BigDecimal("100.00"), "200");
+
+        assertEquals(0, new BigDecimal("100.00").compareTo(sender.getBalance()));
+        assertEquals(0, new BigDecimal("150.00").compareTo(receiver.getBalance()));
+
+        verify(accountRepository, times(1)).save(sender);
+        verify(accountRepository, times(1)).save(receiver);
+        verify(transactionRepository, times(2)).save(any());
+    }
+
+    @Test
+    void shouldThrowExceptionWhenTransferringToSameAccount() {
         IllegalArgumentException exception = assertThrows(
                 IllegalArgumentException.class,
-                () -> accountService.withdraw(accountId, negativeAmount)
+                () -> accountService.transfer("100", new BigDecimal("50.00"), "100")
         );
 
-        assertEquals("Amount is lower or equals to zero", exception.getMessage());
+        assertEquals("Cannot transfer to the same account", exception.getMessage());
+    }
+
+    @Test
+    void shouldThrowForbiddenExceptionWhenUserDoesNotOwnSenderAccountInTransfer() {
+        mockAuthenticatedUser("hacker@mail.com");
+
+        Account sender = new Account("100", "Sender", new BigDecimal("200.00"), "sender@mail.com", "hash", Role.CLIENT);
+        Account receiver = new Account("200", "Receiver", new BigDecimal("50.00"), "receiver@mail.com", "hash", Role.CLIENT);
+
+        when(accountRepository.findByIdForUpdate("100")).thenReturn(Optional.of(sender));
+        when(accountRepository.findByIdForUpdate("200")).thenReturn(Optional.of(receiver));
+
+        ForbiddenException exception = assertThrows(
+                ForbiddenException.class,
+                () -> accountService.transfer("100", new BigDecimal("50.00"), "200")
+        );
+
+        assertEquals("You can only transfer from your own account", exception.getMessage());
     }
 
     // --- ACCOUNT CREATION TESTS ---
@@ -265,7 +303,7 @@ class AccountServiceTest {
                 () -> accountService.createAccount(accountId, ownerName, email, rawPassword, role)
         );
 
-        assertEquals("Account ID alredy exists", exception.getMessage());
+        assertEquals("Account ID already exists", exception.getMessage());
         verify(accountRepository, never()).save(any());
         verify(passwordEncoder, never()).encode(anyString());
     }
