@@ -16,6 +16,10 @@ import org.springframework.stereotype.Service;
 import java.math.BigDecimal;
 import java.util.List;
 
+import com.diogo.core_bancario.exception.ForbiddenException;
+import com.diogo.core_bancario.exception.ResourceNotFoundException;
+import com.diogo.core_bancario.exception.UnauthorizedException;
+
 // Logic of the account
 @Service
 public class AccountService {
@@ -44,7 +48,13 @@ public class AccountService {
 
     public Account getAccount(String id){
         return accountRepository.findById(id).orElseThrow(() ->
-                new IllegalArgumentException("Account whit ID:" + id + " does not exists") //Because its Optimal "Optional<Account>"
+                new ResourceNotFoundException("Account with ID: " + id + " does not exist")
+        );
+    }
+
+    private Account getAccountForUpdate(String id) {
+        return accountRepository.findByIdForUpdate(id).orElseThrow(() ->
+                new ResourceNotFoundException("Account with ID: " + id + " does not exist")
         );
     }
 
@@ -55,7 +65,7 @@ public class AccountService {
             throw new IllegalArgumentException("Amount is lower or equals to zero");
         }
 
-        Account account = getAccount(id);
+        Account account = getAccountForUpdate(id);
 
         BigDecimal balance = account.getBalance();
         BigDecimal newBalance = balance.add(amount);
@@ -76,9 +86,9 @@ public class AccountService {
             throw new IllegalArgumentException("Amount is lower or equals to zero");
         }
 
-        Account account = getAccount(id);
+        Account account = getAccountForUpdate(id);
         if (!account.getEmail().equals(getEmailFromSecurityContextHolder())){
-            throw new IllegalArgumentException("Not your account");
+            throw new ForbiddenException("Not your account");
         }
         BigDecimal balance = account.getBalance();
 
@@ -106,21 +116,24 @@ public class AccountService {
     }
 
     public String login(LoginDTO loginDTO){
-        Account account = accountRepository.findByEmail(loginDTO.email()).orElseThrow((() -> new IllegalArgumentException("Invalid password or email")));
+        Account account = accountRepository.findByEmail(loginDTO.email()).orElseThrow((() -> new UnauthorizedException("Invalid password or email")));
 
-        if (!passwordEncoder.matches(loginDTO.password(), account.getPassword())) { throw new IllegalArgumentException("Invalid password or email");}
+        if (!passwordEncoder.matches(loginDTO.password(), account.getPassword())) { throw new UnauthorizedException("Invalid password or email");}
         return jwtService.generateToken(account.getEmail());
     }
 
     public List<Transaction> getTransactions(String id){
-        getAccount(id);
+        // Security check: ensure users can only view their own transaction history
+        if (!getAccount(id).getEmail().equals(getEmailFromSecurityContextHolder())){
+            throw new ForbiddenException("Not your account");
+        }
         return transactionRepository.findByAccountIdOrderByTimestampDesc(id);
     }
 
     private String getEmailFromSecurityContextHolder(){
         String email = SecurityContextHolder.getContext().getAuthentication().getName();
         if (email == null){
-            throw new IllegalArgumentException("No email found");
+            throw new UnauthorizedException("No email found");
         }
        return email;
     }
