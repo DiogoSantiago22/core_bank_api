@@ -19,9 +19,5 @@ public record AccountCreateDTO(
         String email,
 
         @NotBlank(message = "Password of the owner its mandatory")
-        String password,
-
-        @NotNull(message = "Role of the owner its mandatory")
-        Role role
-
+        String password
 ) {}
