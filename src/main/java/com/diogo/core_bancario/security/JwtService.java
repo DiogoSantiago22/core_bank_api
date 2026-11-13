@@ -3,6 +3,7 @@ package com.diogo.core_bancario.security;
 import com.auth0.jwt.JWT;
 import com.auth0.jwt.algorithms.Algorithm;
 import com.auth0.jwt.exceptions.JWTVerificationException;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.util.Date;
@@ -10,9 +11,11 @@ import java.util.Date;
 @Service
 public class JwtService {
 
-    // Secret key used to sign the token (in a real app, this should be in application.properties)
-    private static final String SECRET = "chave_secreta_super_segura_para_o_core_bancario_2026";
-    private final Algorithm algorithm = Algorithm.HMAC256(SECRET);
+    private final Algorithm algorithm;
+
+    public JwtService(@Value("${jwt.secret}") String secret) {
+        this.algorithm = Algorithm.HMAC256(secret);
+    }
 
     // Generates a token valid for 24 hours associated with the user's email
     public String generateToken(String email) {
