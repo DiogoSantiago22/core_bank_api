@@ -39,6 +39,10 @@ public class AccountService {
         if(accountRepository.existsById(id)){
             throw new IllegalArgumentException("Account ID already exists");
         }
+
+        if(accountRepository.existsByEmail(email)){
+            throw new IllegalArgumentException("Email is already in use");
+        }
         String hashedPassword = passwordEncoder.encode(password);
         Account newAcount = new Account(id,ownerName,BigDecimal.valueOf(0),email,hashedPassword,role);
 

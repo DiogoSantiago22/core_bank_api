@@ -1,9 +1,6 @@
 package com.diogo.core_bancario.model;
 
-import jakarta.persistence.Entity;
-import jakarta.persistence.EnumType;
-import jakarta.persistence.Enumerated;
-import jakarta.persistence.Id;
+import jakarta.persistence.*;
 
 import java.math.BigDecimal;
 @Entity //Create Table
@@ -12,11 +9,13 @@ public class Account {
     private String id;
     private String ownerName;
     private BigDecimal balance;
+    @Column(unique = true)
     private String email;
     private String password;
 
     @Enumerated(EnumType.STRING) // To save "ADMIN" and not "0" f.e.
     private Role role;
+
 
     public Account(String id, String ownerName, BigDecimal balance,String email,String password, Role role){
         this.id = id;
