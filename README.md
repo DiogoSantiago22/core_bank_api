@@ -1,47 +1,47 @@
 # Core Bank API
 
-A REST API for basic banking operations (accounts, deposits, withdrawals, transfers and transaction history), built with **Java 21, Spring Boot 3 and PostgreSQL**.
+A REST API for basic banking operations (accounts, deposits, withdrawals, transfers and transaction history), built with **Java 21, Spring Boot 4 and PostgreSQL**.
 
 I built it to learn the Spring ecosystem outside of coursework: layered architecture, JPA, stateless JWT authentication and, mainly, how to keep money operations correct under concurrent access.
 
 ## Features
 
-- Account sign-up and login (passwords hashed with **BCrypt**, **JWT** access tokens, stateless sessions).
+- Account sign-up (all accounts created via the API are assigned the `CLIENT` role by default) and login (passwords hashed with **BCrypt**, **JWT** access tokens with role claims, stateless sessions).
 - Deposit, withdraw and **transfer** between accounts, each recorded as a transaction.
 - Transaction history per account, newest first.
-- Ownership checks: a client can only withdraw from, transfer from and read the history of their own account.
-- Consistent error responses (`400`, `401`, `403`, `404`) through a global exception handler.
-- Request validation with Bean Validation (`@Valid`, `@NotBlank`, `@Positive`).
+- Ownership and RBAC checks: a `CLIENT` can only read, withdraw from, transfer from and view the transaction history of their own account, while an `ADMIN` can read any account.
+- Consistent error responses (`400`, `401`, `403`, `404`) through a global exception handler and custom authentication entry point.
+- Request validation with Bean Validation (`@Valid`, `@NotBlank`, `@Positive`, `@Digits`).
 
 ## Stack
 
 | Area | Technology |
 |---|---|
-| Language / framework | Java 21, Spring Boot 3, Spring Web, Spring Data JPA (Hibernate) |
+| Language / framework | Java 21, Spring Boot 4, Spring Web, Spring Data JPA (Hibernate) |
 | Security | Spring Security, JWT (`com.auth0:java-jwt`), BCrypt |
-| Database | PostgreSQL |
-| Tests | JUnit 5, Mockito |
+| Database | PostgreSQL 16 |
+| Tests | JUnit 5, Mockito, Testcontainers (PostgreSQL), H2 |
 | Packaging | Maven (wrapper included), Docker, Docker Compose |
 
 ## Architecture
 
-```
+```text
 controller  ->  service  ->  repository  ->  PostgreSQL
-   |              |
-  dto        security (JwtService, JwtAuthenticationFilter)
+   |               |
+  dto          security (JwtService, JwtAuthenticationFilter)
    |
 exception (GlobalExceptionHandler)
 ```
 
 - `controller`: HTTP layer, converts entities to response DTOs.
-- `service`: business rules, transactions and ownership checks.
+- `service`: business rules, transactions, ownership and role checks.
 - `repository`: Spring Data JPA repositories.
 - `dto`: Java `record`s for requests and responses, with validation annotations.
-- `security`: JWT creation/validation and the filter that authenticates each request.
+- `security`: JWT creation/validation (including role claims) and the filter that authenticates each request.
 
 ## Design decisions
 
-**Money is `BigDecimal`**, never `double`, so there are no floating-point rounding errors.
+**Money is `BigDecimal`**, never `double`, so there are no floating-point rounding errors, enforced with 2 decimal places (`@Digits(integer = 15, fraction = 2)`).
 
 **Concurrency.** Two simultaneous withdrawals on the same account could both read the same balance and overdraw it. Balance-changing operations therefore load the account with a **pessimistic write lock** (`SELECT ... FOR UPDATE`, via `findByIdForUpdate`) inside a `@Transactional` method.
 
@@ -49,7 +49,7 @@ exception (GlobalExceptionHandler)
 
 **Atomic transfers.** The debit, the credit and both transaction records happen in a single database transaction, so a failure rolls everything back.
 
-**Stateless auth.** No server-side session: the client sends `Authorization: Bearer <token>` and the filter validates the signature and expiry on every request.
+**Stateless auth.** No server-side session: the client sends `Authorization: Bearer <token>` and the filter validates the signature, expiry and role claim on every request.
 
 ## API
 
@@ -57,21 +57,21 @@ Public: `POST /api/accounts` (sign-up) and `POST /api/auth/login`. Everything el
 
 | Method | Path | Description |
 |---|---|---|
-| `POST` | `/api/accounts` | Create an account (`id`, `ownerName`, `email`, `password`, `role`) |
+| `POST` | `/api/accounts` | Create an account (`id`, `ownerName`, `email`, `password`; assigned `CLIENT` role by default) |
 | `POST` | `/api/auth/login` | Log in with `email` and `password`, returns `{ "token": "..." }` |
-| `GET` | `/api/accounts/{id}` | Get an account |
+| `GET` | `/api/accounts/{id}` | Get an account (owner or `ADMIN` only) |
 | `PUT` | `/api/accounts/{id}/deposit` | Deposit (`{ "amount": 50.00 }`) |
 | `PUT` | `/api/accounts/{id}/withdraw` | Withdraw (`{ "amount": 20.00 }`) |
 | `POST` | `/api/accounts/transfer` | Transfer (`{ "fromId", "toId", "amount" }`) |
-| `GET` | `/api/accounts/{id}/transactions` | Transaction history |
+| `GET` | `/api/accounts/{id}/transactions` | Transaction history (owner only) |
 
-Example:
+### Example
 
 ```bash
 # create an account
 curl -X POST http://localhost:8080/api/accounts \
   -H "Content-Type: application/json" \
-  -d '{"id":"100","ownerName":"Ana Silva","email":"ana@mail.com","password":"changeme","role":"CLIENT"}'
+  -d '{"id":"100","ownerName":"Ana Silva","email":"ana@mail.com","password":"changeme"}'
 
 # log in and use the token
 TOKEN=$(curl -s -X POST http://localhost:8080/api/auth/login \
@@ -83,42 +83,105 @@ curl -X PUT http://localhost:8080/api/accounts/100/deposit \
   -d '{"amount": 50.00}'
 ```
 
+### Error responses
+
 Errors share one format:
 
 ```json
-{ "timestamp": "...", "status": 403, "error": "Forbidden", "message": "Not your account", "path": "/api/accounts/100/withdraw" }
+{
+  "timestamp": "...",
+  "status": 403,
+  "error": "Forbidden",
+  "message": "Not your account",
+  "path": "/api/accounts/100/withdraw"
+}
 ```
 
 ## Running it
 
-Requirements: JDK 21 and Docker.
+### Requirements
 
-**Local (app on your machine, database in Docker)**
+- JDK 21
+- Docker
+- Docker Compose
+
+### Local development
+
+Run the application locally using the `dev` profile, with PostgreSQL running in Docker.
 
 ```bash
-docker compose up -d        # starts PostgreSQL
-./mvnw spring-boot:run      # API on http://localhost:8080
+# start PostgreSQL
+docker compose up -d db
+
+# start the API with the dev profile
+./mvnw spring-boot:run -Dspring-boot.run.profiles=dev
 ```
 
-Default datasource (see `application.properties`): `jdbc:postgresql://localhost:5432/core_bank`, user `admin`. These are local development credentials only.
+The API will be available at:
+
+`http://localhost:8080`
+
+The `dev` profile (`application-dev.properties`) provides a local development `jwt.secret`.
+
+### Full stack with Docker Compose
+
+`JWT_SECRET` has no fallback in `application.properties` and must be provided at runtime (at least 32 characters for HMAC-SHA256).
+
+```bash
+# build the application
+./mvnw clean package -DskipTests
+
+# start the full stack
+JWT_SECRET="your_production_secret_with_at_least_32_characters" docker compose up --build
+```
+
+Never commit production secrets to the repository.
 
 ## Tests
+
+Run the test suite with:
 
 ```bash
 ./mvnw test
 ```
 
-15 unit tests (JUnit 5 + Mockito) cover the service layer: login (success, unknown email, wrong password), deposits, withdrawals (ownership, insufficient balance, invalid amount), transfers (success, same account, not the owner) and account creation. `contextLoads` needs a running PostgreSQL.
+### Unit tests
 
-A GitHub Actions workflow (`.github/workflows/ci.yml`) runs the build and tests against a PostgreSQL service on every push and pull request.
+- **17 unit tests** (`AccountServiceTest`, JUnit 5 + Mockito) cover the service layer:
+    - Login (success, unknown email, wrong password).
+    - Deposits.
+    - Withdrawals (ownership, insufficient balance, invalid amount).
+    - Transfers (success, same account, not the owner).
+    - Account creation.
+    - Account lookup (owner, `ADMIN` access, forbidden for other clients).
+
+### Integration tests
+
+- **2 integration tests** (`ConcurrencyIntegrationTest`, Testcontainers with PostgreSQL 16) verify:
+    - Balance integrity under 100 concurrent transfers.
+    - Deadlock prevention under simultaneous bidirectional transfers (`A -> B` and `B -> A`).
+
+### Application context test
+
+- **`CoreBancarioApplicationTests`** runs against an in-memory H2 database to verify that the Spring application context loads successfully.
+
+### Continuous Integration (CI)
+
+A GitHub Actions workflow (`.github/workflows/ci.yml`) runs the build and full test suite (including Testcontainers PostgreSQL) on every push and pull request.
 
 ## Known limitations
 
-This is a learning project, not production banking software. Things I know are missing:
+This is a learning project, not production banking software. Remaining limitations:
 
-- The JWT signing secret is in the source code; it should come from an environment variable or a secret store.
-- Anyone can register with the `ADMIN` role, because the role is taken from the sign-up request.
-- `GET /api/accounts/{id}` does not check ownership.
-- Locking and transaction atomicity are not covered by automated tests (the unit tests mock the repositories); an integration test against a real PostgreSQL (e.g. Testcontainers) with concurrent requests is the next step.
 - Schema is managed by `ddl-auto=update`; a migration tool such as Flyway would be the proper approach.
-- Account ids are chosen by the client.
+- Account IDs are chosen by the client.
+
+## Finalizing Phase 5
+
+After updating the `README.md`, commit and push the changes:
+
+```powershell
+git add README.md
+git commit -m "docs(readme): align documentation with Spring Boot 4, RBAC ownership, and integration tests"
+git push origin main
+```
