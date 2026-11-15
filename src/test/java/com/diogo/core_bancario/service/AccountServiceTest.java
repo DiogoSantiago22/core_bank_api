@@ -68,7 +68,6 @@ class AccountServiceTest {
 
         when(accountRepository.findByEmail(loginDTO.email())).thenReturn(Optional.of(account));
         when(passwordEncoder.matches(loginDTO.password(), account.getPassword())).thenReturn(true);
-        // Atualiza no shouldSuccessfullyLoginAndReturnToken:
         when(jwtService.generateToken(account.getEmail(), account.getRole())).thenReturn("eyJh...token_valido");
 
 
@@ -111,7 +110,6 @@ class AccountServiceTest {
     }
 
     // --- DEPOSIT TESTS ---
-
     @Test
     void shouldThrowExceptionWhenDepositIsNegative() {
         String accountId = "100";
@@ -128,6 +126,8 @@ class AccountServiceTest {
 
     @Test
     void shouldSuccessfullyDepositWhenAccountExists() {
+        mockAuthenticatedUser("diogo@mail.com");
+
         String accountId = "100";
         Account existingAccount = new Account(accountId, "Diogo Santiago", new BigDecimal("100.00"), "diogo@mail.com", "hash", Role.CLIENT);
         BigDecimal depositAmount = new BigDecimal("50.00");
@@ -139,6 +139,25 @@ class AccountServiceTest {
         assertEquals(0, new BigDecimal("150.00").compareTo(updatedAccount.getBalance()));
         verify(accountRepository, times(1)).save(existingAccount);
         verify(transactionRepository, times(1)).save(any());
+    }
+
+    @Test
+    void shouldThrowForbiddenExceptionWhenNotOwnerOnDeposit() {
+        mockAuthenticatedUser("hacker@mail.com");
+
+        String accountId = "100";
+        Account existingAccount = new Account(accountId, "Diogo Santiago", new BigDecimal("100.00"), "diogo@mail.com", "hash", Role.CLIENT);
+
+        when(accountRepository.findByIdForUpdate(accountId)).thenReturn(Optional.of(existingAccount));
+
+        ForbiddenException exception = assertThrows(
+                ForbiddenException.class,
+                () -> accountService.deposit(accountId, new BigDecimal("50.00"))
+        );
+
+        assertEquals("Not your account", exception.getMessage());
+        verify(accountRepository, never()).save(any());
+        verify(transactionRepository, never()).save(any());
     }
 
     @Test
@@ -309,7 +328,6 @@ class AccountServiceTest {
         verify(accountRepository, never()).save(any());
         verify(passwordEncoder, never()).encode(anyString());
     }
-    // Adiciona estes 3 testes (passas de 14 para 17 testes unitários):
     @Test
     void shouldReturnAccountWhenUserIsOwner() {
         mockAuthenticatedUser("diogo@mail.com");

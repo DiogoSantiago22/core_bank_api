@@ -81,6 +81,9 @@ public class AccountService {
         }
 
         Account account = getAccountForUpdate(id);
+        if (!account.getEmail().equals(getEmailFromSecurityContextHolder())) {
+            throw new ForbiddenException("Not your account");
+        }
 
         BigDecimal balance = account.getBalance();
         BigDecimal newBalance = balance.add(amount);
