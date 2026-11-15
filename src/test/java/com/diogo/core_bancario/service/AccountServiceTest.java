@@ -68,12 +68,14 @@ class AccountServiceTest {
 
         when(accountRepository.findByEmail(loginDTO.email())).thenReturn(Optional.of(account));
         when(passwordEncoder.matches(loginDTO.password(), account.getPassword())).thenReturn(true);
-        when(jwtService.generateToken(account.getEmail())).thenReturn("eyJh...token_valido");
+        // Atualiza no shouldSuccessfullyLoginAndReturnToken:
+        when(jwtService.generateToken(account.getEmail(), account.getRole())).thenReturn("eyJh...token_valido");
+
 
         String token = accountService.login(loginDTO);
 
         assertEquals("eyJh...token_valido", token);
-        verify(jwtService, times(1)).generateToken(account.getEmail());
+        verify(jwtService, times(1)).generateToken(account.getEmail(), account.getRole());
     }
 
     @Test
@@ -105,7 +107,7 @@ class AccountServiceTest {
         );
 
         assertEquals("Invalid password or email", exception.getMessage());
-        verify(jwtService, never()).generateToken(anyString());
+        verify(jwtService, never()).generateToken(any(), any());
     }
 
     // --- DEPOSIT TESTS ---
@@ -306,5 +308,43 @@ class AccountServiceTest {
         assertEquals("Account ID already exists", exception.getMessage());
         verify(accountRepository, never()).save(any());
         verify(passwordEncoder, never()).encode(anyString());
+    }
+    // Adiciona estes 3 testes (passas de 14 para 17 testes unitários):
+    @Test
+    void shouldReturnAccountWhenUserIsOwner() {
+        mockAuthenticatedUser("diogo@mail.com");
+        Account account = new Account("100", "Diogo Santiago", new BigDecimal("250.00"), "diogo@mail.com", "hash", Role.CLIENT);
+        when(accountRepository.findById("100")).thenReturn(Optional.of(account));
+
+        Account result = accountService.getAccount("100");
+
+        assertEquals("100", result.getId());
+    }
+
+    @Test
+    void shouldReturnAccountWhenUserIsAdmin() {
+        Authentication authentication = mock(Authentication.class);
+        SecurityContext securityContext = mock(SecurityContext.class);
+        when(securityContext.getAuthentication()).thenReturn(authentication);
+        when(authentication.getName()).thenReturn("admin@mail.com");
+        doReturn(java.util.List.of(new org.springframework.security.core.authority.SimpleGrantedAuthority("ROLE_ADMIN")))
+                .when(authentication).getAuthorities();
+        SecurityContextHolder.setContext(securityContext);
+
+        Account account = new Account("100", "Diogo Santiago", new BigDecimal("250.00"), "diogo@mail.com", "hash", Role.CLIENT);
+        when(accountRepository.findById("100")).thenReturn(Optional.of(account));
+
+        Account result = accountService.getAccount("100");
+
+        assertEquals("100", result.getId());
+    }
+
+    @Test
+    void shouldThrowForbiddenExceptionWhenNonOwnerClientReadsAccount() {
+        mockAuthenticatedUser("hacker@mail.com");
+        Account account = new Account("100", "Diogo Santiago", new BigDecimal("250.00"), "diogo@mail.com", "hash", Role.CLIENT);
+        when(accountRepository.findById("100")).thenReturn(Optional.of(account));
+
+        assertThrows(ForbiddenException.class, () -> accountService.getAccount("100"));
     }
 }
