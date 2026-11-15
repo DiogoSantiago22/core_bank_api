@@ -50,10 +50,21 @@ public class AccountService {
         return newAcount;
     }
 
-    public Account getAccount(String id){
-        return accountRepository.findById(id).orElseThrow(() ->
+    public Account getAccount(String id) {
+        Account account = accountRepository.findById(id).orElseThrow(() ->
                 new ResourceNotFoundException("Account with ID: " + id + " does not exist")
         );
+
+        String currentEmail = getEmailFromSecurityContextHolder();
+        boolean isAdmin = SecurityContextHolder.getContext().getAuthentication().getAuthorities()
+                .stream()
+                .anyMatch(a -> a.getAuthority().equals("ROLE_ADMIN"));
+
+        if (!account.getEmail().equals(currentEmail) && !isAdmin) {
+            throw new ForbiddenException("Not your account");
+        }
+
+        return account;
     }
 
     private Account getAccountForUpdate(String id) {
@@ -149,11 +160,13 @@ public class AccountService {
         accountRepository.save(receiver);
     }
 
-    public String login(LoginDTO loginDTO){
-        Account account = accountRepository.findByEmail(loginDTO.email()).orElseThrow((() -> new UnauthorizedException("Invalid password or email")));
+    public String login(LoginDTO loginDTO) {
+        Account account = accountRepository.findByEmail(loginDTO.email()).orElseThrow(() -> new UnauthorizedException("Invalid password or email"));
 
-        if (!passwordEncoder.matches(loginDTO.password(), account.getPassword())) { throw new UnauthorizedException("Invalid password or email");}
-        return jwtService.generateToken(account.getEmail());
+        if (!passwordEncoder.matches(loginDTO.password(), account.getPassword())) {
+            throw new UnauthorizedException("Invalid password or email");
+        }
+        return jwtService.generateToken(account.getEmail(), account.getRole());
     }
 
     public List<Transaction> getTransactions(String id){
