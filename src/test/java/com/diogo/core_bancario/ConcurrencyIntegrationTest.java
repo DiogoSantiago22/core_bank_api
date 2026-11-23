@@ -19,15 +19,16 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicInteger;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.*;
 
 @SpringBootTest
 @Testcontainers
@@ -153,5 +154,58 @@ class ConcurrencyIntegrationTest {
 
         Account accountB = accountRepository.findById("B").orElseThrow();
         assertEquals(0, new BigDecimal("1000.00").compareTo(accountB.getBalance()));
+    }
+
+    @Test
+    void testConcurrentOutgoingOperationsRespectDailyLimit() throws InterruptedException {
+        accountRepository.save(new Account("A", "User A", new BigDecimal("3000.00"), "userA@mail.com", "pass", Role.CLIENT, State.ACTIVE));
+        accountRepository.save(new Account("B", "User B", new BigDecimal("0.00"), "userB@mail.com", "pass", Role.CLIENT, State.ACTIVE));
+
+        int totalThreads = 10; // 5 withdraws + 5 transfers of 200.00 each (2000.00 attempted, 1000.00 daily limit)
+        ExecutorService executor = Executors.newFixedThreadPool(10);
+        CountDownLatch startGate = new CountDownLatch(1);
+        CountDownLatch doneLatch = new CountDownLatch(totalThreads);
+        AtomicInteger successCount = new AtomicInteger(0);
+        List<Throwable> errors = Collections.synchronizedList(new ArrayList<>());
+
+        for (int i = 0; i < totalThreads; i++) {
+            final boolean isWithdraw = (i % 2 == 0);
+            executor.submit(() -> {
+                SecurityContextHolder.getContext().setAuthentication(
+                        new UsernamePasswordAuthenticationToken("userA@mail.com", null, List.of())
+                );
+                try {
+                    startGate.await();
+                    if (isWithdraw) {
+                        accountService.withdraw("A", new BigDecimal("200.00"));
+                    } else {
+                        accountService.transfer("A", new BigDecimal("200.00"), "B");
+                    }
+                    successCount.incrementAndGet();
+                } catch (Throwable t) {
+                    errors.add(t);
+                } finally {
+                    SecurityContextHolder.clearContext();
+                    doneLatch.countDown();
+                }
+            });
+        }
+
+        startGate.countDown();
+        doneLatch.await();
+        executor.shutdown();
+
+        assertEquals(5, successCount.get(), "Exactly 5 operations of 200.00 should succeed within the 1000.00 daily limit");
+        assertEquals(5, errors.size(), "Exactly 5 operations should be rejected");
+        for (Throwable error : errors) {
+            assertInstanceOf(IllegalArgumentException.class, error);
+            assertEquals("Daily outgoing limit of 1000.00 exceeded", error.getMessage());
+        }
+
+        Account accountA = accountRepository.findById("A").orElseThrow();
+        assertEquals(0, new BigDecimal("2000.00").compareTo(accountA.getBalance()));
+
+        BigDecimal totalOutgoingToday = transactionRepository.sumDailyOutgoingAmount("A", LocalDate.now().atStartOfDay());
+        assertEquals(0, new BigDecimal("1000.00").compareTo(totalOutgoingToday));
     }
 }

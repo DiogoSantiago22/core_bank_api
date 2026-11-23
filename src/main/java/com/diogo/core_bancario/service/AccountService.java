@@ -6,11 +6,13 @@ import com.diogo.core_bancario.repository.AccountRepository;
 import com.diogo.core_bancario.repository.TransactionRepository;
 import com.diogo.core_bancario.security.JwtService;
 import jakarta.transaction.Transactional;
+
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.util.List;
 
 import com.diogo.core_bancario.exception.ForbiddenException;
@@ -24,6 +26,8 @@ public class AccountService {
     private final TransactionRepository transactionRepository;
     private final PasswordEncoder passwordEncoder;
     private final JwtService jwtService;
+
+    private static final BigDecimal DAILY_OUTGOING_LIMIT = new BigDecimal("1000.00");
 
     public AccountService(AccountRepository repository, TransactionRepository transactionRepository, PasswordEncoder passwordEncoder, JwtService jwtService) {
         this.accountRepository = repository;
@@ -151,6 +155,11 @@ public class AccountService {
         if (validBalance < 0){
             throw new IllegalArgumentException("Amount is bigger than actual balance");
         }
+
+        if(isDailyLimitExceeded(id, amount)){
+            throw new IllegalArgumentException("Daily outgoing limit of " + DAILY_OUTGOING_LIMIT + " exceeded");
+        }
+
         BigDecimal newBalance = balance.subtract(amount);
         account.setBalance(newBalance);
 
@@ -193,6 +202,10 @@ public class AccountService {
             throw new IllegalArgumentException("Insufficient balance for transfer");
         }
 
+        if(isDailyLimitExceeded(fromId, amount)){
+            throw new IllegalArgumentException("Daily outgoing limit of " + DAILY_OUTGOING_LIMIT + " exceeded");
+        }
+
         sender.setBalance(sender.getBalance().subtract(amount));
         receiver.setBalance(receiver.getBalance().add(amount));
 
@@ -233,5 +246,13 @@ public class AccountService {
                 .stream()
                 .anyMatch(a -> a.getAuthority().equals("ROLE_ADMIN"));
         return isAdmin;
+    }
+
+    private boolean isDailyLimitExceeded(String id, BigDecimal amount) {
+        BigDecimal sum = transactionRepository.sumDailyOutgoingAmount(id, LocalDate.now().atStartOfDay());
+        if (sum == null) {
+            sum = BigDecimal.ZERO;
+        }
+        return sum.add(amount).compareTo(DAILY_OUTGOING_LIMIT) > 0;
     }
 }

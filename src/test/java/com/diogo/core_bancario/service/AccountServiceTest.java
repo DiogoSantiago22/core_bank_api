@@ -28,6 +28,7 @@ import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
@@ -372,6 +373,102 @@ class AccountServiceTest {
         assertEquals("One of the accounts is frozen", exception.getMessage());
         verify(accountRepository, never()).save(any());
         verify(transactionRepository, never()).save(any());
+    }
+
+    // --- DAILY OUTGOING LIMIT TESTS ---
+
+    @Test
+    void shouldAllowWithdrawWhenReachingExactDailyOutgoingLimit() {
+        mockAuthenticatedUser("diogo@mail.com");
+
+        Account account = new Account("100", "Diogo Santiago", new BigDecimal("2000.00"), "diogo@mail.com", "hash", Role.CLIENT, State.ACTIVE);
+        when(accountRepository.findByIdForUpdate("100")).thenReturn(Optional.of(account));
+        when(transactionRepository.sumDailyOutgoingAmount(eq("100"), any())).thenReturn(new BigDecimal("600.00"));
+
+        Account updated = accountService.withdraw("100", new BigDecimal("400.00"));
+
+        assertEquals(0, new BigDecimal("1600.00").compareTo(updated.getBalance()));
+        verify(accountRepository, times(1)).save(account);
+        verify(transactionRepository, times(1)).save(any());
+    }
+
+    @Test
+    void shouldThrowIllegalArgumentExceptionWhenWithdrawExceedsDailyOutgoingLimit() {
+        mockAuthenticatedUser("diogo@mail.com");
+
+        Account account = new Account("100", "Diogo Santiago", new BigDecimal("2000.00"), "diogo@mail.com", "hash", Role.CLIENT, State.ACTIVE);
+        when(accountRepository.findByIdForUpdate("100")).thenReturn(Optional.of(account));
+        when(transactionRepository.sumDailyOutgoingAmount(eq("100"), any())).thenReturn(new BigDecimal("600.00"));
+
+        IllegalArgumentException exception = assertThrows(
+                IllegalArgumentException.class,
+                () -> accountService.withdraw("100", new BigDecimal("400.01"))
+        );
+
+        assertEquals("Daily outgoing limit of 1000.00 exceeded", exception.getMessage());
+        verify(accountRepository, never()).save(any());
+        verify(transactionRepository, never()).save(any());
+    }
+
+    @Test
+    void shouldAllowTransferWhenReachingExactDailyOutgoingLimit() {
+        mockAuthenticatedUser("sender@mail.com");
+
+        Account sender = new Account("100", "Sender", new BigDecimal("2000.00"), "sender@mail.com", "hash", Role.CLIENT, State.ACTIVE);
+        Account receiver = new Account("200", "Receiver", new BigDecimal("100.00"), "receiver@mail.com", "hash", Role.CLIENT, State.ACTIVE);
+
+        when(accountRepository.findByIdForUpdate("100")).thenReturn(Optional.of(sender));
+        when(accountRepository.findByIdForUpdate("200")).thenReturn(Optional.of(receiver));
+        when(transactionRepository.sumDailyOutgoingAmount(eq("100"), any())).thenReturn(new BigDecimal("750.00"));
+
+        accountService.transfer("100", new BigDecimal("250.00"), "200");
+
+        assertEquals(0, new BigDecimal("1750.00").compareTo(sender.getBalance()));
+        assertEquals(0, new BigDecimal("350.00").compareTo(receiver.getBalance()));
+        verify(accountRepository, times(1)).save(sender);
+        verify(accountRepository, times(1)).save(receiver);
+    }
+
+    @Test
+    void shouldThrowIllegalArgumentExceptionWhenTransferExceedsDailyOutgoingLimit() {
+        mockAuthenticatedUser("sender@mail.com");
+
+        Account sender = new Account("100", "Sender", new BigDecimal("2000.00"), "sender@mail.com", "hash", Role.CLIENT, State.ACTIVE);
+        Account receiver = new Account("200", "Receiver", new BigDecimal("100.00"), "receiver@mail.com", "hash", Role.CLIENT, State.ACTIVE);
+
+        when(accountRepository.findByIdForUpdate("100")).thenReturn(Optional.of(sender));
+        when(accountRepository.findByIdForUpdate("200")).thenReturn(Optional.of(receiver));
+        when(transactionRepository.sumDailyOutgoingAmount(eq("100"), any())).thenReturn(new BigDecimal("750.00"));
+
+        IllegalArgumentException exception = assertThrows(
+                IllegalArgumentException.class,
+                () -> accountService.transfer("100", new BigDecimal("250.01"), "200")
+        );
+
+        assertEquals("Daily outgoing limit of 1000.00 exceeded", exception.getMessage());
+        verify(accountRepository, never()).save(any());
+        verify(transactionRepository, never()).save(any());
+    }
+
+    @Test
+    void shouldNotIncreaseAvailableDailyOutgoingLimitAfterDeposit() {
+        mockAuthenticatedUser("diogo@mail.com");
+
+        Account account = new Account("100", "Diogo Santiago", new BigDecimal("500.00"), "diogo@mail.com", "hash", Role.CLIENT, State.ACTIVE);
+        when(accountRepository.findByIdForUpdate("100")).thenReturn(Optional.of(account));
+        when(transactionRepository.sumDailyOutgoingAmount(eq("100"), any())).thenReturn(new BigDecimal("1000.00"));
+
+        // Deposit succeeds and increases balance to 1000.00
+        accountService.deposit("100", new BigDecimal("500.00"));
+        assertEquals(0, new BigDecimal("1000.00").compareTo(account.getBalance()));
+
+        // Outgoing limit remains exhausted (1000.00 already moved out today)
+        IllegalArgumentException exception = assertThrows(
+                IllegalArgumentException.class,
+                () -> accountService.withdraw("100", new BigDecimal("10.00"))
+        );
+
+        assertEquals("Daily outgoing limit of 1000.00 exceeded", exception.getMessage());
     }
 
     // --- ACCOUNT STATE (ADMIN FREEZE / ACTIVATE) TESTS ---

@@ -3,7 +3,6 @@ package com.diogo.core_bancario.model;
 import jakarta.persistence.*;
 
 import java.math.BigDecimal;
-import java.time.LocalDate;
 import java.time.LocalDateTime;
 
 @Entity
@@ -48,6 +47,4 @@ public class Transaction
     public TransactionType getTransactionType(){
         return transactionType;
     }
-
-
 }
