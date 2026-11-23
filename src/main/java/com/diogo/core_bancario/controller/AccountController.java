@@ -4,6 +4,7 @@ package com.diogo.core_bancario.controller;
 import com.diogo.core_bancario.dto.*;
 import com.diogo.core_bancario.model.Account;
 import com.diogo.core_bancario.model.Role;
+import com.diogo.core_bancario.model.State;
 import com.diogo.core_bancario.model.Transaction;
 import com.diogo.core_bancario.service.AccountService;
 import jakarta.validation.Valid;
@@ -25,7 +26,7 @@ public class AccountController {
 
     @PostMapping // HTTP POST requests (create new data)
     public AccountResponseDTO createAccount(@Valid @RequestBody AccountCreateDTO accountCreateDTO){
-        Account account = accountService.createAccount(accountCreateDTO.id(),accountCreateDTO.ownerName(), accountCreateDTO.email(), accountCreateDTO.password(), Role.CLIENT);
+        Account account = accountService.createAccount(accountCreateDTO.id(),accountCreateDTO.ownerName(), accountCreateDTO.email(), accountCreateDTO.password(), Role.CLIENT, State.ACTIVE);
         return toAccountDTO(account);
     }
 
@@ -33,6 +34,19 @@ public class AccountController {
     public AccountResponseDTO getAccount(@PathVariable("id") String id) // Extracts dynamic value from URL path (f.e: /123)
     {
         Account account = accountService.getAccount(id);
+        return toAccountDTO(account);
+    }
+    @PutMapping("/{id}/frozen")
+    public AccountResponseDTO frozenAccount(@PathVariable("id") String id)
+    {
+        Account account = accountService.frozenAccount(id);
+        return toAccountDTO(account);
+    }
+
+    @PutMapping("/{id}/active")
+    public AccountResponseDTO activeAccount(@PathVariable("id") String id)
+    {
+        Account account = accountService.activeAccount(id);
         return toAccountDTO(account);
     }
 
@@ -68,7 +82,7 @@ public class AccountController {
 
 
     private AccountResponseDTO toAccountDTO(Account account){
-        return new AccountResponseDTO(account.getId(), account.getOwnerName(), account.getBalance());
+        return new AccountResponseDTO(account.getId(), account.getOwnerName(), account.getBalance(), account.getState());
     }
 
     private TransactionResponseDTO toTransactionDTO(Transaction transaction) {

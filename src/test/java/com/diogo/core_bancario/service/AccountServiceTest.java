@@ -6,6 +6,7 @@ import com.diogo.core_bancario.exception.ResourceNotFoundException;
 import com.diogo.core_bancario.exception.UnauthorizedException;
 import com.diogo.core_bancario.model.Account;
 import com.diogo.core_bancario.model.Role;
+import com.diogo.core_bancario.model.State;
 import com.diogo.core_bancario.repository.AccountRepository;
 import com.diogo.core_bancario.repository.TransactionRepository;
 import com.diogo.core_bancario.security.JwtService;
@@ -16,11 +17,13 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.core.Authentication;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContext;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
 import java.math.BigDecimal;
+import java.util.List;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -55,7 +58,17 @@ class AccountServiceTest {
         Authentication authentication = mock(Authentication.class);
         SecurityContext securityContext = mock(SecurityContext.class);
         when(securityContext.getAuthentication()).thenReturn(authentication);
-        when(authentication.getName()).thenReturn(email);
+        lenient().when(authentication.getName()).thenReturn(email);
+        SecurityContextHolder.setContext(securityContext);
+    }
+
+    private void mockAuthenticatedAdmin(String email) {
+        Authentication authentication = mock(Authentication.class);
+        SecurityContext securityContext = mock(SecurityContext.class);
+        when(securityContext.getAuthentication()).thenReturn(authentication);
+        lenient().when(authentication.getName()).thenReturn(email);
+        doReturn(List.of(new SimpleGrantedAuthority("ROLE_ADMIN")))
+                .when(authentication).getAuthorities();
         SecurityContextHolder.setContext(securityContext);
     }
 
@@ -64,12 +77,11 @@ class AccountServiceTest {
     @Test
     void shouldSuccessfullyLoginAndReturnToken() {
         LoginDTO loginDTO = new LoginDTO("diogo@mail.com", "minha_senha");
-        Account account = new Account("100", "Diogo Santiago", BigDecimal.ZERO, "diogo@mail.com", "senha_encriptada", Role.CLIENT);
+        Account account = new Account("100", "Diogo Santiago", BigDecimal.ZERO, "diogo@mail.com", "senha_encriptada", Role.CLIENT, State.ACTIVE);
 
         when(accountRepository.findByEmail(loginDTO.email())).thenReturn(Optional.of(account));
         when(passwordEncoder.matches(loginDTO.password(), account.getPassword())).thenReturn(true);
         when(jwtService.generateToken(account.getEmail(), account.getRole())).thenReturn("eyJh...token_valido");
-
 
         String token = accountService.login(loginDTO);
 
@@ -95,7 +107,7 @@ class AccountServiceTest {
     @Test
     void shouldThrowUnauthorizedExceptionWhenLoginPasswordIsWrong() {
         LoginDTO loginDTO = new LoginDTO("diogo@mail.com", "senha_errada");
-        Account account = new Account("100", "Diogo Santiago", BigDecimal.ZERO, "diogo@mail.com", "senha_encriptada", Role.CLIENT);
+        Account account = new Account("100", "Diogo Santiago", BigDecimal.ZERO, "diogo@mail.com", "senha_encriptada", Role.CLIENT, State.ACTIVE);
 
         when(accountRepository.findByEmail(loginDTO.email())).thenReturn(Optional.of(account));
         when(passwordEncoder.matches(loginDTO.password(), account.getPassword())).thenReturn(false);
@@ -110,6 +122,7 @@ class AccountServiceTest {
     }
 
     // --- DEPOSIT TESTS ---
+
     @Test
     void shouldThrowExceptionWhenDepositIsNegative() {
         String accountId = "100";
@@ -129,7 +142,7 @@ class AccountServiceTest {
         mockAuthenticatedUser("diogo@mail.com");
 
         String accountId = "100";
-        Account existingAccount = new Account(accountId, "Diogo Santiago", new BigDecimal("100.00"), "diogo@mail.com", "hash", Role.CLIENT);
+        Account existingAccount = new Account(accountId, "Diogo Santiago", new BigDecimal("100.00"), "diogo@mail.com", "hash", Role.CLIENT, State.ACTIVE);
         BigDecimal depositAmount = new BigDecimal("50.00");
 
         when(accountRepository.findByIdForUpdate(accountId)).thenReturn(Optional.of(existingAccount));
@@ -146,7 +159,7 @@ class AccountServiceTest {
         mockAuthenticatedUser("hacker@mail.com");
 
         String accountId = "100";
-        Account existingAccount = new Account(accountId, "Diogo Santiago", new BigDecimal("100.00"), "diogo@mail.com", "hash", Role.CLIENT);
+        Account existingAccount = new Account(accountId, "Diogo Santiago", new BigDecimal("100.00"), "diogo@mail.com", "hash", Role.CLIENT, State.ACTIVE);
 
         when(accountRepository.findByIdForUpdate(accountId)).thenReturn(Optional.of(existingAccount));
 
@@ -177,6 +190,25 @@ class AccountServiceTest {
         verify(transactionRepository, never()).save(any());
     }
 
+    @Test
+    void shouldThrowIllegalArgumentExceptionWhenDepositingIntoFrozenAccount() {
+        mockAuthenticatedUser("diogo@mail.com");
+
+        String accountId = "100";
+        Account frozenAccount = new Account(accountId, "Diogo Santiago", new BigDecimal("100.00"), "diogo@mail.com", "hash", Role.CLIENT, State.FROZEN);
+
+        when(accountRepository.findByIdForUpdate(accountId)).thenReturn(Optional.of(frozenAccount));
+
+        IllegalArgumentException exception = assertThrows(
+                IllegalArgumentException.class,
+                () -> accountService.deposit(accountId, new BigDecimal("50.00"))
+        );
+
+        assertEquals("Your account is frozen", exception.getMessage());
+        verify(accountRepository, never()).save(any());
+        verify(transactionRepository, never()).save(any());
+    }
+
     // --- WITHDRAW TESTS ---
 
     @Test
@@ -184,7 +216,7 @@ class AccountServiceTest {
         mockAuthenticatedUser("hacker@mail.com");
 
         String accountId = "100";
-        Account existingAccount = new Account(accountId, "Diogo Santiago", new BigDecimal("200.00"), "diogo@mail.com", "hash", Role.CLIENT);
+        Account existingAccount = new Account(accountId, "Diogo Santiago", new BigDecimal("200.00"), "diogo@mail.com", "hash", Role.CLIENT, State.ACTIVE);
 
         when(accountRepository.findByIdForUpdate(accountId)).thenReturn(Optional.of(existingAccount));
 
@@ -202,7 +234,7 @@ class AccountServiceTest {
         mockAuthenticatedUser("diogo@mail.com");
 
         String accountId = "100";
-        Account existingAccount = new Account(accountId, "Diogo Santiago", new BigDecimal("200.00"), "diogo@mail.com", "hash", Role.CLIENT);
+        Account existingAccount = new Account(accountId, "Diogo Santiago", new BigDecimal("200.00"), "diogo@mail.com", "hash", Role.CLIENT, State.ACTIVE);
         BigDecimal withdrawAmount = new BigDecimal("50.00");
 
         when(accountRepository.findByIdForUpdate(accountId)).thenReturn(Optional.of(existingAccount));
@@ -219,7 +251,7 @@ class AccountServiceTest {
         mockAuthenticatedUser("diogo@mail.com");
 
         String accountId = "100";
-        Account existingAccount = new Account(accountId, "Diogo Santiago", new BigDecimal("30.00"), "diogo@mail.com", "hash", Role.CLIENT);
+        Account existingAccount = new Account(accountId, "Diogo Santiago", new BigDecimal("30.00"), "diogo@mail.com", "hash", Role.CLIENT, State.ACTIVE);
         BigDecimal withdrawAmount = new BigDecimal("50.00");
 
         when(accountRepository.findByIdForUpdate(accountId)).thenReturn(Optional.of(existingAccount));
@@ -233,14 +265,33 @@ class AccountServiceTest {
         verify(accountRepository, never()).save(any());
     }
 
+    @Test
+    void shouldThrowIllegalArgumentExceptionWhenWithdrawingFromFrozenAccount() {
+        mockAuthenticatedUser("diogo@mail.com");
+
+        String accountId = "100";
+        Account frozenAccount = new Account(accountId, "Diogo Santiago", new BigDecimal("200.00"), "diogo@mail.com", "hash", Role.CLIENT, State.FROZEN);
+
+        when(accountRepository.findByIdForUpdate(accountId)).thenReturn(Optional.of(frozenAccount));
+
+        IllegalArgumentException exception = assertThrows(
+                IllegalArgumentException.class,
+                () -> accountService.withdraw(accountId, new BigDecimal("50.00"))
+        );
+
+        assertEquals("Your account is frozen", exception.getMessage());
+        verify(accountRepository, never()).save(any());
+        verify(transactionRepository, never()).save(any());
+    }
+
     // --- TRANSFER TESTS ---
 
     @Test
     void shouldSuccessfullyTransferBetweenAccounts() {
         mockAuthenticatedUser("sender@mail.com");
 
-        Account sender = new Account("100", "Sender", new BigDecimal("200.00"), "sender@mail.com", "hash", Role.CLIENT);
-        Account receiver = new Account("200", "Receiver", new BigDecimal("50.00"), "receiver@mail.com", "hash", Role.CLIENT);
+        Account sender = new Account("100", "Sender", new BigDecimal("200.00"), "sender@mail.com", "hash", Role.CLIENT, State.ACTIVE);
+        Account receiver = new Account("200", "Receiver", new BigDecimal("50.00"), "receiver@mail.com", "hash", Role.CLIENT, State.ACTIVE);
 
         when(accountRepository.findByIdForUpdate("100")).thenReturn(Optional.of(sender));
         when(accountRepository.findByIdForUpdate("200")).thenReturn(Optional.of(receiver));
@@ -269,8 +320,8 @@ class AccountServiceTest {
     void shouldThrowForbiddenExceptionWhenUserDoesNotOwnSenderAccountInTransfer() {
         mockAuthenticatedUser("hacker@mail.com");
 
-        Account sender = new Account("100", "Sender", new BigDecimal("200.00"), "sender@mail.com", "hash", Role.CLIENT);
-        Account receiver = new Account("200", "Receiver", new BigDecimal("50.00"), "receiver@mail.com", "hash", Role.CLIENT);
+        Account sender = new Account("100", "Sender", new BigDecimal("200.00"), "sender@mail.com", "hash", Role.CLIENT, State.ACTIVE);
+        Account receiver = new Account("200", "Receiver", new BigDecimal("50.00"), "receiver@mail.com", "hash", Role.CLIENT, State.ACTIVE);
 
         when(accountRepository.findByIdForUpdate("100")).thenReturn(Optional.of(sender));
         when(accountRepository.findByIdForUpdate("200")).thenReturn(Optional.of(receiver));
@@ -283,7 +334,139 @@ class AccountServiceTest {
         assertEquals("You can only transfer from your own account", exception.getMessage());
     }
 
-    // --- ACCOUNT CREATION TESTS ---
+    @Test
+    void shouldThrowIllegalArgumentExceptionWhenTransferringFromFrozenAccount() {
+        mockAuthenticatedUser("sender@mail.com");
+
+        Account sender = new Account("100", "Sender", new BigDecimal("200.00"), "sender@mail.com", "hash", Role.CLIENT, State.FROZEN);
+        Account receiver = new Account("200", "Receiver", new BigDecimal("50.00"), "receiver@mail.com", "hash", Role.CLIENT, State.ACTIVE);
+
+        when(accountRepository.findByIdForUpdate("100")).thenReturn(Optional.of(sender));
+        when(accountRepository.findByIdForUpdate("200")).thenReturn(Optional.of(receiver));
+
+        IllegalArgumentException exception = assertThrows(
+                IllegalArgumentException.class,
+                () -> accountService.transfer("100", new BigDecimal("50.00"), "200")
+        );
+
+        assertEquals("One of the accounts is frozen", exception.getMessage());
+        verify(accountRepository, never()).save(any());
+        verify(transactionRepository, never()).save(any());
+    }
+
+    @Test
+    void shouldThrowIllegalArgumentExceptionWhenTransferringToFrozenAccount() {
+        mockAuthenticatedUser("sender@mail.com");
+
+        Account sender = new Account("100", "Sender", new BigDecimal("200.00"), "sender@mail.com", "hash", Role.CLIENT, State.ACTIVE);
+        Account receiver = new Account("200", "Receiver", new BigDecimal("50.00"), "receiver@mail.com", "hash", Role.CLIENT, State.FROZEN);
+
+        when(accountRepository.findByIdForUpdate("100")).thenReturn(Optional.of(sender));
+        when(accountRepository.findByIdForUpdate("200")).thenReturn(Optional.of(receiver));
+
+        IllegalArgumentException exception = assertThrows(
+                IllegalArgumentException.class,
+                () -> accountService.transfer("100", new BigDecimal("50.00"), "200")
+        );
+
+        assertEquals("One of the accounts is frozen", exception.getMessage());
+        verify(accountRepository, never()).save(any());
+        verify(transactionRepository, never()).save(any());
+    }
+
+    // --- ACCOUNT STATE (ADMIN FREEZE / ACTIVATE) TESTS ---
+
+    @Test
+    void shouldFreezeAccountWhenUserIsAdmin() {
+        mockAuthenticatedAdmin("admin@mail.com");
+
+        Account account = new Account("100", "Diogo Santiago", new BigDecimal("200.00"), "diogo@mail.com", "hash", Role.CLIENT, State.ACTIVE);
+        when(accountRepository.findByIdForUpdate("100")).thenReturn(Optional.of(account));
+
+        Account result = accountService.frozenAccount("100");
+
+        assertEquals(State.FROZEN, result.getState());
+        verify(accountRepository, times(1)).save(account);
+    }
+
+    @Test
+    void shouldThrowForbiddenExceptionWhenNonAdminFreezesAccount() {
+        mockAuthenticatedUser("diogo@mail.com");
+
+        Account account = new Account("100", "Diogo Santiago", new BigDecimal("200.00"), "diogo@mail.com", "hash", Role.CLIENT, State.ACTIVE);
+        when(accountRepository.findByIdForUpdate("100")).thenReturn(Optional.of(account));
+
+        ForbiddenException exception = assertThrows(
+                ForbiddenException.class,
+                () -> accountService.frozenAccount("100")
+        );
+
+        assertEquals("Only admins can change the account state", exception.getMessage());
+        verify(accountRepository, never()).save(any());
+    }
+
+    @Test
+    void shouldThrowIllegalArgumentExceptionWhenFreezingAlreadyFrozenAccount() {
+        mockAuthenticatedAdmin("admin@mail.com");
+
+        Account account = new Account("100", "Diogo Santiago", new BigDecimal("200.00"), "diogo@mail.com", "hash", Role.CLIENT, State.FROZEN);
+        when(accountRepository.findByIdForUpdate("100")).thenReturn(Optional.of(account));
+
+        IllegalArgumentException exception = assertThrows(
+                IllegalArgumentException.class,
+                () -> accountService.frozenAccount("100")
+        );
+
+        assertEquals("Account with ID: 100 is already frozen", exception.getMessage());
+        verify(accountRepository, never()).save(any());
+    }
+
+    @Test
+    void shouldActivateAccountWhenUserIsAdmin() {
+        mockAuthenticatedAdmin("admin@mail.com");
+
+        Account account = new Account("100", "Diogo Santiago", new BigDecimal("200.00"), "diogo@mail.com", "hash", Role.CLIENT, State.FROZEN);
+        when(accountRepository.findByIdForUpdate("100")).thenReturn(Optional.of(account));
+
+        Account result = accountService.activeAccount("100");
+
+        assertEquals(State.ACTIVE, result.getState());
+        verify(accountRepository, times(1)).save(account);
+    }
+
+    @Test
+    void shouldThrowForbiddenExceptionWhenNonAdminActivatesAccount() {
+        mockAuthenticatedUser("diogo@mail.com");
+
+        Account account = new Account("100", "Diogo Santiago", new BigDecimal("200.00"), "diogo@mail.com", "hash", Role.CLIENT, State.FROZEN);
+        when(accountRepository.findByIdForUpdate("100")).thenReturn(Optional.of(account));
+
+        ForbiddenException exception = assertThrows(
+                ForbiddenException.class,
+                () -> accountService.activeAccount("100")
+        );
+
+        assertEquals("Only admins can change the account state", exception.getMessage());
+        verify(accountRepository, never()).save(any());
+    }
+
+    @Test
+    void shouldThrowIllegalArgumentExceptionWhenActivatingAlreadyActiveAccount() {
+        mockAuthenticatedAdmin("admin@mail.com");
+
+        Account account = new Account("100", "Diogo Santiago", new BigDecimal("200.00"), "diogo@mail.com", "hash", Role.CLIENT, State.ACTIVE);
+        when(accountRepository.findByIdForUpdate("100")).thenReturn(Optional.of(account));
+
+        IllegalArgumentException exception = assertThrows(
+                IllegalArgumentException.class,
+                () -> accountService.activeAccount("100")
+        );
+
+        assertEquals("Account with ID: 100 is already active", exception.getMessage());
+        verify(accountRepository, never()).save(any());
+    }
+
+    // --- ACCOUNT CREATION & LOOKUP TESTS ---
 
     @Test
     void shouldSuccessfullyCreateAccountWhenIdDoesNotExist() {
@@ -292,17 +475,19 @@ class AccountServiceTest {
         String email = "maria@mail.com";
         String rawPassword = "password123";
         Role role = Role.CLIENT;
+        State state = State.ACTIVE;
 
         when(accountRepository.existsById(accountId)).thenReturn(false);
         when(passwordEncoder.encode(rawPassword)).thenReturn("hashed_password123");
 
-        Account newAccount = accountService.createAccount(accountId, ownerName, email, rawPassword, role);
+        Account newAccount = accountService.createAccount(accountId, ownerName, email, rawPassword, role, state);
 
         assertNotNull(newAccount);
         assertEquals(accountId, newAccount.getId());
         assertEquals(ownerName, newAccount.getOwnerName());
         assertEquals(email, newAccount.getEmail());
         assertEquals("hashed_password123", newAccount.getPassword());
+        assertEquals(State.ACTIVE, newAccount.getState());
         assertEquals(0, BigDecimal.ZERO.compareTo(newAccount.getBalance()));
 
         verify(passwordEncoder, times(1)).encode(rawPassword);
@@ -316,22 +501,24 @@ class AccountServiceTest {
         String email = "diogo@mail.com";
         String rawPassword = "password123";
         Role role = Role.CLIENT;
+        State state = State.ACTIVE;
 
         when(accountRepository.existsById(accountId)).thenReturn(true);
 
         IllegalArgumentException exception = assertThrows(
                 IllegalArgumentException.class,
-                () -> accountService.createAccount(accountId, ownerName, email, rawPassword, role)
+                () -> accountService.createAccount(accountId, ownerName, email, rawPassword, role, state)
         );
 
         assertEquals("Account ID already exists", exception.getMessage());
         verify(accountRepository, never()).save(any());
         verify(passwordEncoder, never()).encode(anyString());
     }
+
     @Test
     void shouldReturnAccountWhenUserIsOwner() {
         mockAuthenticatedUser("diogo@mail.com");
-        Account account = new Account("100", "Diogo Santiago", new BigDecimal("250.00"), "diogo@mail.com", "hash", Role.CLIENT);
+        Account account = new Account("100", "Diogo Santiago", new BigDecimal("250.00"), "diogo@mail.com", "hash", Role.CLIENT, State.ACTIVE);
         when(accountRepository.findById("100")).thenReturn(Optional.of(account));
 
         Account result = accountService.getAccount("100");
@@ -341,15 +528,9 @@ class AccountServiceTest {
 
     @Test
     void shouldReturnAccountWhenUserIsAdmin() {
-        Authentication authentication = mock(Authentication.class);
-        SecurityContext securityContext = mock(SecurityContext.class);
-        when(securityContext.getAuthentication()).thenReturn(authentication);
-        when(authentication.getName()).thenReturn("admin@mail.com");
-        doReturn(java.util.List.of(new org.springframework.security.core.authority.SimpleGrantedAuthority("ROLE_ADMIN")))
-                .when(authentication).getAuthorities();
-        SecurityContextHolder.setContext(securityContext);
+        mockAuthenticatedAdmin("admin@mail.com");
 
-        Account account = new Account("100", "Diogo Santiago", new BigDecimal("250.00"), "diogo@mail.com", "hash", Role.CLIENT);
+        Account account = new Account("100", "Diogo Santiago", new BigDecimal("250.00"), "diogo@mail.com", "hash", Role.CLIENT, State.ACTIVE);
         when(accountRepository.findById("100")).thenReturn(Optional.of(account));
 
         Account result = accountService.getAccount("100");
@@ -360,7 +541,7 @@ class AccountServiceTest {
     @Test
     void shouldThrowForbiddenExceptionWhenNonOwnerClientReadsAccount() {
         mockAuthenticatedUser("hacker@mail.com");
-        Account account = new Account("100", "Diogo Santiago", new BigDecimal("250.00"), "diogo@mail.com", "hash", Role.CLIENT);
+        Account account = new Account("100", "Diogo Santiago", new BigDecimal("250.00"), "diogo@mail.com", "hash", Role.CLIENT, State.ACTIVE);
         when(accountRepository.findById("100")).thenReturn(Optional.of(account));
 
         assertThrows(ForbiddenException.class, () -> accountService.getAccount("100"));

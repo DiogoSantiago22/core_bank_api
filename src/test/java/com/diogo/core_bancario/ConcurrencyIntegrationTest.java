@@ -2,6 +2,7 @@ package com.diogo.core_bancario;
 
 import com.diogo.core_bancario.model.Account;
 import com.diogo.core_bancario.model.Role;
+import com.diogo.core_bancario.model.State;
 import com.diogo.core_bancario.repository.AccountRepository;
 import com.diogo.core_bancario.repository.TransactionRepository;
 import com.diogo.core_bancario.service.AccountService;
@@ -56,8 +57,8 @@ class ConcurrencyIntegrationTest {
 
     @Test
     void testConcurrentTransfersMaintainDataIntegrity() throws InterruptedException {
-        accountRepository.save(new Account("A", "User A", new BigDecimal("1000.00"), "userA@mail.com", "pass", Role.CLIENT));
-        accountRepository.save(new Account("B", "User B", new BigDecimal("1000.00"), "userB@mail.com", "pass", Role.CLIENT));
+        accountRepository.save(new Account("A", "User A", new BigDecimal("1000.00"), "userA@mail.com", "pass", Role.CLIENT, State.ACTIVE));
+        accountRepository.save(new Account("B", "User B", new BigDecimal("1000.00"), "userB@mail.com", "pass", Role.CLIENT, State.ACTIVE));
 
         int numberOfThreads = 100;
         ExecutorService executor = Executors.newFixedThreadPool(10);
@@ -97,8 +98,8 @@ class ConcurrencyIntegrationTest {
 
     @Test
     void testBidirectionalConcurrentTransfersPreventDeadlocks() throws InterruptedException {
-        accountRepository.save(new Account("A", "User A", new BigDecimal("1000.00"), "userA@mail.com", "pass", Role.CLIENT));
-        accountRepository.save(new Account("B", "User B", new BigDecimal("1000.00"), "userB@mail.com", "pass", Role.CLIENT));
+        accountRepository.save(new Account("A", "User A", new BigDecimal("1000.00"), "userA@mail.com", "pass", Role.CLIENT, State.ACTIVE));
+        accountRepository.save(new Account("B", "User B", new BigDecimal("1000.00"), "userB@mail.com", "pass", Role.CLIENT, State.ACTIVE));
 
         int transfersPerDirection = 50;
         int totalTasks = transfersPerDirection * 2;

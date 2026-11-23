@@ -16,14 +16,18 @@ public class Account {
     @Enumerated(EnumType.STRING) // To save "ADMIN" and not "0" f.e.
     private Role role;
 
+    @Enumerated(EnumType.STRING)
+    private State state;
 
-    public Account(String id, String ownerName, BigDecimal balance,String email,String password, Role role){
+
+    public Account(String id, String ownerName, BigDecimal balance,String email,String password, Role role, State state){
         this.id = id;
         this.ownerName = ownerName;
         this.balance = balance;
         this.email = email;
         this.password = password;
         this.role = role;
+        this.state = state;
     }
     // should have [public, protected] no-arg constructor
     public Account() {
@@ -42,6 +46,7 @@ public class Account {
     public String getEmail(){return email;}
     public String getPassword(){return password;}
     public Role getRole(){return role;}
+    public State getState(){return state;}
 
 
     // Setters:
@@ -51,5 +56,6 @@ public class Account {
     public void setPassword(String password){this.password = password;}
     public void setEmail(String email){this.email = email;}
     public void setRole(Role role){this.role = role;}
+    public void setState(State state){this.state = state;}
 
 }

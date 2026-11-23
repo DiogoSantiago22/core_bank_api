@@ -1,10 +1,7 @@
 package com.diogo.core_bancario.service;
 
 import com.diogo.core_bancario.dto.LoginDTO;
-import com.diogo.core_bancario.model.Account;
-import com.diogo.core_bancario.model.Role;
-import com.diogo.core_bancario.model.Transaction;
-import com.diogo.core_bancario.model.TransactionType;
+import com.diogo.core_bancario.model.*;
 import com.diogo.core_bancario.repository.AccountRepository;
 import com.diogo.core_bancario.repository.TransactionRepository;
 import com.diogo.core_bancario.security.JwtService;
@@ -35,7 +32,7 @@ public class AccountService {
         this.jwtService = jwtService;
     }
 
-    public Account createAccount(String id,String ownerName,String email, String password, Role role){
+    public Account createAccount(String id,String ownerName,String email, String password, Role role, State state){
         if(accountRepository.existsById(id)){
             throw new IllegalArgumentException("Account ID already exists");
         }
@@ -44,7 +41,7 @@ public class AccountService {
             throw new IllegalArgumentException("Email is already in use");
         }
         String hashedPassword = passwordEncoder.encode(password);
-        Account newAcount = new Account(id,ownerName,BigDecimal.valueOf(0),email,hashedPassword,role);
+        Account newAcount = new Account(id,ownerName,BigDecimal.valueOf(0),email,hashedPassword,role, state);
 
         accountRepository.save(newAcount);
         return newAcount;
@@ -56,13 +53,45 @@ public class AccountService {
         );
 
         String currentEmail = getEmailFromSecurityContextHolder();
-        boolean isAdmin = SecurityContextHolder.getContext().getAuthentication().getAuthorities()
-                .stream()
-                .anyMatch(a -> a.getAuthority().equals("ROLE_ADMIN"));
+        boolean isAdmin = isAdmin();
 
         if (!account.getEmail().equals(currentEmail) && !isAdmin) {
             throw new ForbiddenException("Not your account");
         }
+
+        return account;
+    }
+
+    @Transactional
+    public Account activeAccount(String id){
+
+        Account account = getAccountForUpdate(id);
+        if(!isAdmin()){
+            throw new ForbiddenException("Only admins can change the account state");
+        }
+        State atualState = account.getState();
+        if(atualState == State.FROZEN){
+            account.setState(State.ACTIVE);} else if (atualState == State.ACTIVE) {throw new IllegalArgumentException("Account with ID: " + id + " is already active");}
+        else throw new IllegalArgumentException("Account with ID: " + id + " does not have a state");
+
+        accountRepository.save(account);
+
+        return account;
+        }
+
+    @Transactional
+    public Account frozenAccount(String id){
+
+        Account account = getAccountForUpdate(id);
+        if(!isAdmin()){
+            throw new ForbiddenException("Only admins can change the account state");
+        }
+        State atualState = account.getState();
+        if(atualState == State.ACTIVE){
+            account.setState(State.FROZEN);} else if (atualState == State.FROZEN) {throw new IllegalArgumentException("Account with ID: " + id + " is already frozen");}
+        else throw new IllegalArgumentException("Account with ID: " + id + " does not have a state");
+
+        accountRepository.save(account);
 
         return account;
     }
@@ -83,6 +112,9 @@ public class AccountService {
         Account account = getAccountForUpdate(id);
         if (!account.getEmail().equals(getEmailFromSecurityContextHolder())) {
             throw new ForbiddenException("Not your account");
+        }
+        if(account.getState() == State.FROZEN){
+            throw new IllegalArgumentException("Your account is frozen");
         }
 
         BigDecimal balance = account.getBalance();
@@ -108,6 +140,11 @@ public class AccountService {
         if (!account.getEmail().equals(getEmailFromSecurityContextHolder())){
             throw new ForbiddenException("Not your account");
         }
+
+        if(account.getState() == State.FROZEN){
+            throw new IllegalArgumentException("Your account is frozen");
+        }
+
         BigDecimal balance = account.getBalance();
 
         int validBalance = balance.compareTo(amount);
@@ -149,6 +186,9 @@ public class AccountService {
         if (!sender.getEmail().equals(getEmailFromSecurityContextHolder())){
             throw new ForbiddenException("You can only transfer from your own account");
         }
+        if(sender.getState() == State.FROZEN || receiver.getState() == State.FROZEN ){
+            throw new IllegalArgumentException("One of the accounts is frozen");
+        }
         if (sender.getBalance().compareTo(amount) < 0){
             throw new IllegalArgumentException("Insufficient balance for transfer");
         }
@@ -186,5 +226,12 @@ public class AccountService {
             throw new UnauthorizedException("No email found");
         }
        return email;
+    }
+
+    private boolean isAdmin(){
+        boolean isAdmin = SecurityContextHolder.getContext().getAuthentication().getAuthorities()
+                .stream()
+                .anyMatch(a -> a.getAuthority().equals("ROLE_ADMIN"));
+        return isAdmin;
     }
 }
